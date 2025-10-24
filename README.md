@@ -86,3 +86,4 @@ FIREBASE_SERVICE_ACCOUNT_BASE64=
 Sin licencia especificada. Añade una si deseas hacer el repo público.
 
 # Nodify
+# Nodify
