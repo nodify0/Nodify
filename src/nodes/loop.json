@@ -1,0 +1,75 @@
+{
+  "id": "loop_node",
+  "version": "1.0",
+  "name": "Loop",
+  "description": "Iterate over an array and execute subsequent nodes for each item with control over batch size and delays.",
+  "group": "Logic",
+  "category": "logic",
+  "shape": "2x2",
+  "color": "#8B5CF6",
+  "icon": "Repeat",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "array",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "loop",
+      "label": "Loop Item",
+      "position": "right",
+      "type": "any",
+      "slot": 1
+    },
+    {
+      "id": "done",
+      "label": "Done",
+      "position": "bottom",
+      "type": "array",
+      "slot": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "inputArray",
+      "displayName": "Input Array",
+      "type": "string",
+      "default": "{{data}}",
+      "required": true,
+      "description": "Array to iterate over. Can use {{data}} or {{data.items}}",
+      "ui": {
+        "component": "code"
+      }
+    },
+    {
+      "name": "batchSize",
+      "displayName": "Batch Size",
+      "type": "number",
+      "default": 1,
+      "description": "Number of items to process at once. Use 0 for all items."
+    },
+    {
+      "name": "delayBetweenItems",
+      "displayName": "Delay Between Items (ms)",
+      "type": "number",
+      "default": 0,
+      "description": "Milliseconds to wait between processing each item."
+    },
+    {
+      "name": "maxIterations",
+      "displayName": "Max Iterations",
+      "type": "number",
+      "default": 0,
+      "description": "Maximum number of iterations. Use 0 for unlimited."
+    }
+  ],
+  "executionCode": "helpers.log('Starting Loop node'); let inputArray = node.properties.inputArray.value; const batchSize = node.properties.batchSize.value || 1; const delayBetweenItems = node.properties.delayBetweenItems.value || 0; const maxIterations = node.properties.maxIterations.value || 0; helpers.log(`Configuration: batchSize=${batchSize}, delay=${delayBetweenItems}ms, maxIterations=${maxIterations}`); if (typeof inputArray === 'string') { helpers.log(`Resolving input array from: ${inputArray}`); if (inputArray === '{{data}}') { inputArray = data; } else if (inputArray.includes('{{data.')) { const match = inputArray.match(/\\{\\{data\\.([^}]+)\\}\\}/); if (match) { const path = match[1].split('.'); let value = data; for (const key of path) { value = value?.[key]; } inputArray = value; } } else { try { inputArray = JSON.parse(inputArray); } catch (e) {} } } if (!Array.isArray(inputArray)) { helpers.error(`Input is not an array. Received type: ${typeof inputArray}`); return { path: 'error', error: 'Input is not an array', receivedType: typeof inputArray, receivedValue: inputArray }; } const itemsToProcess = maxIterations > 0 ? inputArray.slice(0, maxIterations) : inputArray; helpers.log(`Array has ${inputArray.length} items total`); if (maxIterations > 0 && maxIterations < inputArray.length) { helpers.log(`Limited to ${maxIterations} iterations (${inputArray.length - maxIterations} items skipped)`); } helpers.log(`Processing ${itemsToProcess.length} items`); const results = []; for (let i = 0; i < itemsToProcess.length; i++) { const item = itemsToProcess[i]; if (i > 0 && delayBetweenItems > 0) { helpers.log(`Waiting ${delayBetweenItems}ms before processing item ${i + 1}`); await new Promise(resolve => setTimeout(resolve, delayBetweenItems)); } helpers.log(`Processing item ${i + 1}/${itemsToProcess.length}`); results.push({ index: i, total: itemsToProcess.length, item: item, isFirst: i === 0, isLast: i === itemsToProcess.length - 1 }); } helpers.log(`Loop completed successfully. Processed ${results.length} items.`); return { loopItems: results, totalCount: results.length, batchSize: batchSize };",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-15"
+  }
+}

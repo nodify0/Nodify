@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat loop.json)",
+      "Bash(cat error_handler.json)",
+      "Bash(cat json_operations.json)",
+      "Bash(cat datetime.json)",
+      "Bash(cat filter_sort.json)",
+      "Bash(cat google_sheets.json)",
+      "Bash(cat sql_database.json)",
+      "Bash(cat redis.json)",
+      "Bash(cat pdf_generator.json)",
+      "Bash(cat image_processing.json)",
+      "Bash(cat form_submit.json)",
+      "Bash(cat schedule.json)",
+      "Bash(cat chat_message.json)",
+      "Bash(node:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx next build)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(timeout:*)",
+      "Bash(firebase deploy --only firestore:rules)",
+      "Bash(npx firebase-tools deploy --only firestore:rules)",
+      "Bash(npx firebase-tools deploy --only firestore:rules --project studio-7497860674-b91ac)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(firebase deploy:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

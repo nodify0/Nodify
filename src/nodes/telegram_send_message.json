@@ -1,0 +1,97 @@
+{
+  "id": "telegram_send_message",
+  "version": "1.0",
+  "name": "Telegram Send Message",
+  "description": "Send a text message to a Telegram chat using a Bot Token.",
+  "group": "Social Media",
+  "category": "action",
+  "executionEnvironment": "server",
+  "shape": "2x2",
+  "color": "#229ED9",
+  "icon": "Send",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    },
+    {
+      "id": "error",
+      "label": "Error",
+      "position": "right",
+      "type": "any",
+      "slot": 2
+    }
+  ],
+  "properties": [
+    {
+      "name": "credentials",
+      "displayName": "Telegram Credentials",
+      "type": "credentials",
+      "placeholder": "Select Telegram credentials...",
+      "typeOptions": {
+        "credentialType": "telegram"
+      },
+      "required": true
+    },
+    {
+      "name": "chatId",
+      "displayName": "Chat ID",
+      "type": "string",
+      "required": true,
+      "placeholder": "@channelusername or numeric chat id"
+    },
+    {
+      "name": "text",
+      "displayName": "Message Text",
+      "type": "string",
+      "default": "{{data.message}}",
+      "ui": {
+        "component": "textarea"
+      },
+      "required": true
+    },
+    {
+      "name": "parseMode",
+      "displayName": "Parse Mode",
+      "type": "options",
+      "default": "none",
+      "options": [
+        {
+          "value": "none",
+          "label": "None"
+        },
+        {
+          "value": "MarkdownV2",
+          "label": "MarkdownV2"
+        },
+        {
+          "value": "HTML",
+          "label": "HTML"
+        }
+      ]
+    },
+    {
+      "name": "disablePreview",
+      "displayName": "Disable Link Preview",
+      "type": "boolean",
+      "default": false
+    }
+  ],
+  "executionCode": "try {\n  helpers.log('Starting Telegram Send Message');\n\n  const fetch = (await import('node-fetch')).default;\n  const credentialId = node.properties.credentials?.value;\n  const chatId = node.properties.chatId?.value;\n  const text = node.properties.text?.value || '';\n  const parseMode = node.properties.parseMode?.value || 'none';\n  const disablePreview = !!node.properties.disablePreview?.value;\n\n  if (!credentialId) {\n    return { path: 'error', error: 'Credential is required' };\n  }\n  if (!chatId) {\n    return { path: 'error', error: 'chatId is required' };\n  }\n\n  // Load token via helper first, then services, then env\n  let botToken = null;\n  if (typeof helpers.getCredentialData === 'function') {\n    const cred = await helpers.getCredentialData(credentialId);\n    botToken = cred?.botToken || cred?.apiKey || null;\n  }\n  if (!botToken && services) {\n    try {\n      const snap = await services.getDoc(services.doc(services.db, 'users', services.user.uid, 'credentials', credentialId));\n      if (snap.exists()) {\n        const data = snap.data();\n        botToken = data?.data?.botToken || data?.data?.apiKey || null;\n      }\n    } catch (e) {\n      helpers.warn('Credential fetch via services failed');\n    }\n  }\n  if (!botToken && env?.TELEGRAM_BOT_TOKEN) {\n    botToken = env.TELEGRAM_BOT_TOKEN;\n  }\n  if (!botToken) {\n    helpers.error('No bot token provided');\n    return { path: 'error', error: 'No bot token provided' };\n  }\n\n  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;\n  const body = { chat_id: chatId, text };\n  if (parseMode && parseMode !== 'none') body.parse_mode = parseMode;\n  if (disablePreview) body.disable_web_page_preview = true;\n\n  helpers.log('Sending to Telegram chat:', chatId);\n  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });\n  const result = await res.json();\n\n  if (!res.ok || !result.ok) {\n    helpers.error('Telegram API error:', JSON.stringify(result));\n    return { path: 'error', error: result.description || 'Telegram API error', status: res.status, details: result };\n  }\n\n  helpers.log('Message sent. Message ID:', result.result?.message_id);\n  return { success: true, messageId: result.result?.message_id, chat: result.result?.chat, raw: result };\n} catch (error) {\n  helpers.error('Telegram send failed:', error.message);\n  return { path: 'error', error: error.message, stack: error.stack };\n}",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-22"
+  }
+}

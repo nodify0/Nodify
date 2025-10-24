@@ -1,0 +1,78 @@
+{
+  "id": "discord_send_message",
+  "version": "1.0",
+  "name": "Discord Send Message",
+  "description": "Send a message to a Discord channel using a Bot Token.",
+  "group": "Social Media",
+  "category": "action",
+  "executionEnvironment": "server",
+  "shape": "2x2",
+  "color": "#5865F2",
+  "icon": "MessageCircle",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    },
+    {
+      "id": "error",
+      "label": "Error",
+      "position": "right",
+      "type": "any",
+      "slot": 2
+    }
+  ],
+  "properties": [
+    {
+      "name": "credentials",
+      "displayName": "Discord Credentials",
+      "type": "credentials",
+      "placeholder": "Select Discord credentials...",
+      "typeOptions": {
+        "credentialType": "discord"
+      },
+      "required": true
+    },
+    {
+      "name": "channelId",
+      "displayName": "Channel ID",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "content",
+      "displayName": "Message",
+      "type": "string",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "{{data.message}}"
+    },
+    {
+      "name": "embeds",
+      "displayName": "Embeds (JSON)",
+      "type": "json",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "[]"
+    }
+  ],
+  "executionCode": "try {\n  const fetch = (await import('node-fetch')).default;\n  const credentialId = node.properties.credentials?.value;\n  const channelId = node.properties.channelId?.value;\n  const content = node.properties.content?.value || '';\n  let embeds = node.properties.embeds?.value;\n  if (typeof embeds === 'string') { try { embeds = JSON.parse(embeds || '[]'); } catch { embeds = []; } }\n\n  if (!credentialId) return { path: 'error', error: 'Credential is required' };\n  if (!channelId) return { path: 'error', error: 'channelId is required' };\n  if (!content && (!embeds || embeds.length === 0)) return { path: 'error', error: 'Either content or embeds must be provided' };\n\n  let botToken = null;\n  if (typeof helpers.getCredentialData === 'function') { const cred = await helpers.getCredentialData(credentialId); botToken = cred?.botToken || cred?.apiKey || null; }\n  if (!botToken && services) { const snap = await services.getDoc(services.doc(services.db, 'users', services.user.uid, 'credentials', credentialId)); if (snap.exists()) { const d = snap.data(); botToken = d?.data?.botToken || d?.data?.apiKey || null; } }\n  if (!botToken && env?.DISCORD_BOT_TOKEN) botToken = env.DISCORD_BOT_TOKEN;\n  if (!botToken) return { path: 'error', error: 'No bot token provided' };\n\n  const url = `https://discord.com/api/v10/channels/${channelId}/messages`;\n  const body = { }; if (content) body.content = content; if (embeds && Array.isArray(embeds) && embeds.length) body.embeds = embeds;\n  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bot ${botToken}` }, body: JSON.stringify(body) });\n  const result = await res.json();\n  if (!res.ok) return { path: 'error', error: result.message || 'Discord API error', status: res.status, details: result };\n  return { success: true, id: result.id, channel_id: result.channel_id, raw: result };\n} catch (e) { return { path: 'error', error: e.message, stack: e.stack }; }",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-22"
+  }
+}

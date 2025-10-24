@@ -1,0 +1,216 @@
+{
+  "id": "table_node",
+  "version": "1.0",
+  "name": "Table",
+  "description": "Perform CRUD operations (Get, Insert, Update, Delete, Query) on a user-defined table.",
+  "group": "Data",
+  "category": "data",
+  "executionEnvironment": "client",
+  "shape": "2x2",
+  "color": "#10B981",
+  "icon": "Database",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "table",
+      "displayName": "Table",
+      "type": "collection",
+      "required": true,
+      "description": "Select the table to perform the operation on.",
+      "typeOptions": {
+        "collectionName": "tables"
+      }
+    },
+    {
+      "name": "operation",
+      "displayName": "Operation",
+      "type": "options",
+      "default": "insert",
+      "required": true,
+      "options": [
+        {
+          "id": "op-insert",
+          "label": "Insert Row",
+          "value": "insert"
+        },
+        {
+          "id": "op-get",
+          "label": "Get Row",
+          "value": "get"
+        },
+        {
+          "id": "op-query",
+          "label": "Query Rows",
+          "value": "query"
+        },
+        {
+          "id": "op-update",
+          "label": "Update Row",
+          "value": "update"
+        },
+        {
+          "id": "op-delete",
+          "label": "Delete Row",
+          "value": "delete"
+        }
+      ]
+    },
+    {
+      "name": "rowId",
+      "displayName": "Row ID",
+      "type": "string",
+      "required": true,
+      "placeholder": "Enter the ID of the row",
+      "description": "The unique identifier for the row to get, update, or delete.",
+      "ui": {
+        "component": "code"
+      },
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "get",
+            "update",
+            "delete"
+          ]
+        }
+      }
+    },
+    {
+      "name": "data",
+      "displayName": "Data (JSON)",
+      "type": "json",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "{{data}}",
+      "description": "The JSON data to insert or update in the row.",
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "insert",
+            "update"
+          ]
+        }
+      }
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters (JSON)",
+      "type": "json",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "[\n  {\n    \"field\": \"column_name\",\n    \"operator\": \"==\",\n    \"value\": \"value\"\n  }\n]",
+      "placeholder": "[\n  {\"field\": \"name\", \"operator\": \"==\", \"value\": \"Brian\"},\n  {\"field\": \"age\", \"operator\": \">=\", \"value\": 21}\n]",
+      "description": "Array of filter conditions. Operators: ==, !=, >, <, >=, <=, in, contains, between, array-contains",
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "filterLogic",
+      "displayName": "Filter Logic",
+      "type": "options",
+      "default": "AND",
+      "description": "How to combine multiple filters",
+      "options": [
+        {
+          "id": "logic-and",
+          "label": "AND (all conditions must match)",
+          "value": "AND"
+        },
+        {
+          "id": "logic-or",
+          "label": "OR (any condition must match)",
+          "value": "OR"
+        }
+      ],
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "orderBy",
+      "displayName": "Order By",
+      "type": "string",
+      "placeholder": "field",
+      "description": "Field name to sort by (optional)",
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "orderDirection",
+      "displayName": "Order Direction",
+      "type": "options",
+      "default": "asc",
+      "options": [
+        {
+          "id": "order-asc",
+          "label": "Ascending",
+          "value": "asc"
+        },
+        {
+          "id": "order-desc",
+          "label": "Descending",
+          "value": "desc"
+        }
+      ],
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "name": "limit",
+      "displayName": "Limit",
+      "type": "number",
+      "default": 100,
+      "description": "Maximum number of rows to return",
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "query"
+          ]
+        }
+      }
+    }
+  ],
+  "executionCode": "const { db, user, doc, getDoc, setDoc, updateDoc, deleteDoc, errorEmitter, FirestorePermissionError } = services;\nconst { collection, query, where, getDocs, orderBy, limit: firestoreLimit } = await import('firebase/firestore');\n\nconst tableId = node.properties.table.value;\nconst operation = node.properties.operation.value;\nconst rowId = node.properties.rowId?.value;\nlet rowData = node.properties.data?.value;\n\n// Parse JSON if it's a string\nif (typeof rowData === 'string' && rowData.trim()) {\n  try {\n    rowData = JSON.parse(rowData);\n  } catch (e) {\n    // If parsing fails, it might be a simple string value\n  }\n}\n\nconst basePath = `users/${user.uid}/tableRows`;\n\nif (!tableId) {\n  return { path: 'error', data: { error: 'Table not selected.' } };\n}\n\nif (['get', 'update', 'delete'].includes(operation) && (rowId === undefined || rowId === null || rowId === '')) {\n    return { path: 'error', data: { error: 'Row ID is required for this operation.' } };\n}\n\ntry {\n  switch (operation) {\n    case 'insert': {\n      if (!rowData) return { path: 'error', data: { error: 'No data provided for insert operation.'} };\n      \n      let insertId;\n      if (rowData.id !== undefined && rowData.id !== null && rowData.id !== '') {\n        // Use provided ID\n        insertId = String(rowData.id);\n\n        // Check if the ID already exists\n        const checkDocRef = doc(db, basePath, insertId);\n        const existingDoc = await getDoc(checkDocRef);\n\n        if (existingDoc.exists() && existingDoc.data().tableId === tableId) {\n          return { success: false, operation, table: tableId, id: insertId, error: `Row with ID '${insertId}' already exists in table '${tableId}'.` };\n        }\n      } else {\n        // Generate sequential ID\n        const tableRowsRef = collection(db, basePath);\n        const tableQuery = query(tableRowsRef, where('tableId', '==', tableId));\n        const querySnapshot = await getDocs(tableQuery);\n        \n        let maxId = 0;\n        querySnapshot.forEach((docSnap) => {\n          const rowId = docSnap.data().id;\n          const numericId = parseInt(rowId, 10);\n          if (!isNaN(numericId) && numericId > maxId) {\n            maxId = numericId;\n          }\n        });\n        \n        insertId = String(maxId + 1);\n      }\n      \n      const fullRowData = { ...rowData, tableId: tableId, id: insertId };\n      const insertDocRef = doc(db, basePath, String(insertId));\n      await setDoc(insertDocRef, fullRowData);\n      return { success: true, operation, table: tableId, id: insertId, data: fullRowData };\n    }\n\n    case 'get': {\n      const getDocRef = doc(db, basePath, String(rowId));\n      const docSnap = await getDoc(getDocRef);\n      if (docSnap.exists() && docSnap.data().tableId === tableId) {\n        return { success: true, operation, table: tableId, id: rowId, data: docSnap.data() };\n      } else {\n        return { path: 'error', data: { error: `Row with ID '${rowId}' not found in table '${tableId}'.` } };\n      }\n    }\n\n    case 'query': {\n      // Parse filters\n      let filters = node.properties.filters?.value || [];\n      if (typeof filters === 'string' && filters.trim()) {\n        try {\n          filters = JSON.parse(filters);\n        } catch (e) {\n          return { path: 'error', data: { error: 'Invalid filters JSON format.' } };\n        }\n      }\n\n      const filterLogic = node.properties.filterLogic?.value || 'AND';\n      const orderByField = node.properties.orderBy?.value;\n      const orderDirection = node.properties.orderDirection?.value || 'asc';\n      const limitValue = node.properties.limit?.value || 100;\n\n      const tableRowsRef = collection(db, basePath);\n      const queryConstraints = [where('tableId', '==', tableId)];\n\n      // Firestore limitation: OR queries require separate queries or composite indexes\n      // For AND logic, we can add multiple where clauses\n      // For OR logic with different fields, we need to filter in-memory\n\n      if (filterLogic === 'AND' && Array.isArray(filters) && filters.length > 0) {\n        // Add Firestore where clauses for AND logic\n        for (const filter of filters) {\n          if (!filter.field || !filter.operator) continue;\n\n          const { field, operator, value } = filter;\n\n          // Map operator to Firestore operator\n          const firestoreOp = operator === '==' ? '==' :\n                             operator === '!=' ? '!=' :\n                             operator === '>' ? '>' :\n                             operator === '<' ? '<' :\n                             operator === '>=' ? '>=' :\n                             operator === '<=' ? '<=' :\n                             operator === 'in' ? 'in' :\n                             operator === 'array-contains' ? 'array-contains' :\n                             '==';\n\n          queryConstraints.push(where(field, firestoreOp, value));\n        }\n      }\n\n      // Add ordering\n      if (orderByField) {\n        queryConstraints.push(orderBy(orderByField, orderDirection));\n      }\n\n      // Add limit\n      if (limitValue && limitValue > 0) {\n        queryConstraints.push(firestoreLimit(limitValue));\n      }\n\n      const tableQuery = query(tableRowsRef, ...queryConstraints);\n      const querySnapshot = await getDocs(tableQuery);\n\n      let results = [];\n      querySnapshot.forEach((docSnap) => {\n        results.push(docSnap.data());\n      });\n\n      // For OR logic, filter in-memory after fetching\n      if (filterLogic === 'OR' && Array.isArray(filters) && filters.length > 0) {\n        results = results.filter(row => {\n          return filters.some(filter => {\n            if (!filter.field || !filter.operator) return false;\n\n            const { field, operator, value } = filter;\n            const fieldValue = row[field];\n\n            switch (operator) {\n              case '==': return fieldValue == value;\n              case '!=': return fieldValue != value;\n              case '>': return fieldValue > value;\n              case '<': return fieldValue < value;\n              case '>=': return fieldValue >= value;\n              case '<=': return fieldValue <= value;\n              case 'in': return Array.isArray(value) && value.includes(fieldValue);\n              case 'contains': return String(fieldValue).includes(String(value));\n              case 'between':\n                return Array.isArray(value) && value.length === 2 &&\n                       fieldValue >= value[0] && fieldValue <= value[1];\n              default: return false;\n            }\n          });\n        });\n      }\n\n      return {\n        success: true,\n        operation,\n        table: tableId,\n        count: results.length,\n        rows: results\n      };\n    }\n\n    case 'update': {\n      if (!rowData) return { path: 'error', data: { error: 'No data provided for update operation.' } };\n      const updateDocRef = doc(db, basePath, String(rowId));\n      await updateDoc(updateDocRef, rowData);\n      return { success: true, operation, table: tableId, id: rowId, data: rowData };\n    }\n\n    case 'delete': {\n      const deleteDocRef = doc(db, basePath, String(rowId));\n      await deleteDoc(deleteDocRef);\n      return { success: true, operation, table: tableId, id: rowId };\n    }\n\n    default:\n      return { path: 'error', data: { error: `Unknown operation: ${operation}` } };\n  }\n} catch (error) {\n    console.error(`[Table Node Error] Operation: ${operation}, Path: ${basePath}`, error);\n    if (error.code === 'permission-denied') {\n        const contextualError = new FirestorePermissionError({\n            path: `${basePath}/${rowId || '(new_id)'}`,\n            operation: operation === 'insert' ? 'create' : operation,\n            requestResourceData: rowData,\n        });\n        errorEmitter.emit('permission-error', contextualError);\n        return { path: 'error', data: { error: contextualError.message, details: error } };\n    } \n    return { path: 'error', data: { error: error.message, details: error } };\n}\n",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-06"
+  }
+}

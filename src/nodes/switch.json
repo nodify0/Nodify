@@ -1,0 +1,46 @@
+{
+  "id": "switch_node",
+  "version": "1.0",
+  "name": "Switch",
+  "description": "Route data to different outputs based on a value match.",
+  "group": "Logic",
+  "category": "logic",
+  "shape": "2x2",
+  "color": "#F59E0B",
+  "icon": "SwitchCamera",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [],
+  "properties": [
+    {
+      "name": "inputField",
+      "displayName": "Input Value",
+      "type": "string",
+      "default": "{{data.value}}",
+      "ui": {
+        "component": "code"
+      }
+    },
+    {
+      "name": "routingRules",
+      "displayName": "Routing Rules",
+      "type": "json",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "[\n  {\n    \"output\": \"output_1\",\n    \"operator\": \"equals\",\n    \"value\": \"A\"\n  },\n  {\n    \"output\": \"output_2\",\n    \"operator\": \"equals\",\n    \"value\": \"B\"\n  }\n]"
+    }
+  ],
+  "executionCode": "helpers.log('Evaluating Switch routing'); const val = node.properties.inputField.value; const rules = JSON.parse(node.properties.routingRules.value || '[]'); helpers.log(`Input value: ${JSON.stringify(val)}`); helpers.log(`Evaluating ${rules.length} routing rules`); let path = 'default'; for (let i = 0; i < rules.length; i++) { const rule = rules[i]; helpers.log(`Rule ${i + 1}: ${rule.operator} ${JSON.stringify(rule.value)} -> ${rule.output}`); let condition = false; switch (rule.operator) { case 'equals': condition = (val == rule.value); break; case 'not_equals': condition = (val != rule.value); break; case 'contains': condition = (val || '').toString().includes(rule.value); break; } helpers.log(`Rule ${i + 1} condition: ${condition}`); if (condition) { path = rule.output; helpers.log(`Match found! Routing to: ${path}`); break; } } if (path === 'default') { helpers.log('No rules matched, using default path'); } return { ...data, path };",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-06"
+  }
+}

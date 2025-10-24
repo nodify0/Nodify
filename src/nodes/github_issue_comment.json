@@ -1,0 +1,114 @@
+{
+  "id": "github_issue_comment",
+  "version": "1.0",
+  "name": "GitHub Issue/Comment",
+  "description": "Create a GitHub issue or add a comment to an existing issue.",
+  "group": "Social Media",
+  "category": "action",
+  "executionEnvironment": "server",
+  "shape": "2x2",
+  "color": "#24292F",
+  "icon": "Github",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    },
+    {
+      "id": "error",
+      "label": "Error",
+      "position": "right",
+      "type": "any",
+      "slot": 2
+    }
+  ],
+  "properties": [
+    {
+      "name": "credentials",
+      "displayName": "GitHub Credentials",
+      "type": "credentials",
+      "typeOptions": {
+        "credentialType": "github"
+      },
+      "required": true
+    },
+    {
+      "name": "operation",
+      "displayName": "Operation",
+      "type": "options",
+      "default": "create_issue",
+      "options": [
+        {
+          "value": "create_issue",
+          "label": "Create Issue"
+        },
+        {
+          "value": "create_comment",
+          "label": "Create Comment"
+        }
+      ]
+    },
+    {
+      "name": "owner",
+      "displayName": "Owner",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "repo",
+      "displayName": "Repo",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "title",
+      "displayName": "Issue Title",
+      "type": "string",
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "create_issue"
+          ]
+        }
+      }
+    },
+    {
+      "name": "body",
+      "displayName": "Body",
+      "type": "string",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "{{data.message}}"
+    },
+    {
+      "name": "issueNumber",
+      "displayName": "Issue Number",
+      "type": "number",
+      "displayOptions": {
+        "show": {
+          "operation": [
+            "create_comment"
+          ]
+        }
+      }
+    }
+  ],
+  "executionCode": "try {\n  const fetch = (await import('node-fetch')).default;\n  const credentialId = node.properties.credentials?.value;\n  const operation = node.properties.operation?.value || 'create_issue';\n  const owner = node.properties.owner?.value;\n  const repo = node.properties.repo?.value;\n  const title = node.properties.title?.value || '';\n  const body = node.properties.body?.value || '';\n  const issueNumber = node.properties.issueNumber?.value;\n  if (!credentialId) return { path: 'error', error: 'Credential is required' };\n  if (!owner || !repo) return { path: 'error', error: 'owner and repo are required' };\n\n  let token = null;\n  if (typeof helpers.getCredentialData === 'function') { const cred = await helpers.getCredentialData(credentialId); token = cred?.accessToken || cred?.apiKey || null; }\n  if (!token && services) { const snap = await services.getDoc(services.doc(services.db, 'users', services.user.uid, 'credentials', credentialId)); if (snap.exists()) { const d = snap.data(); token = d?.data?.accessToken || d?.data?.apiKey || null; } }\n  if (!token && env?.GITHUB_TOKEN) token = env.GITHUB_TOKEN;\n  if (!token) return { path: 'error', error: 'No GitHub token provided' };\n\n  let url = ''; let method = 'POST'; let payload: any = {};\n  if (operation === 'create_issue') {\n    url = `https://api.github.com/repos/${owner}/${repo}/issues`;\n    payload = { title, body };\n  } else {\n    if (!issueNumber) return { path: 'error', error: 'issueNumber is required for create_comment' };\n    url = `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/comments`;\n    payload = { body };\n  }\n  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }, body: JSON.stringify(payload) });\n  const result = await res.json();\n  if (!res.ok) return { path: 'error', error: result.message || 'GitHub API error', status: res.status, details: result };\n  return { success: true, url: result.html_url, number: result.number, raw: result };\n} catch (e) { return { path: 'error', error: e.message, stack: e.stack }; }",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-22"
+  }
+}

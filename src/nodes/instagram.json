@@ -1,0 +1,185 @@
+{
+  "id": "instagram",
+  "version": "1.0",
+  "name": "Instagram",
+  "description": "Post photos, videos, stories, and manage Instagram Business content.",
+  "group": "Social Media",
+  "category": "action",
+  "shape": "circle",
+  "color": "#E4405F",
+  "icon": "Instagram",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "credential",
+      "displayName": "Instagram Access Token",
+      "type": "credential",
+      "credentialType": "instagram",
+      "required": true,
+      "description": "Instagram Graph API access token"
+    },
+    {
+      "name": "accountId",
+      "displayName": "Instagram Business Account ID",
+      "type": "string",
+      "default": "",
+      "required": true,
+      "description": "Your Instagram Business Account ID"
+    },
+    {
+      "name": "operation",
+      "displayName": "Operation",
+      "type": "options",
+      "default": "createPost",
+      "options": [
+        {
+          "value": "createPost",
+          "label": "Create Post"
+        },
+        {
+          "value": "createStory",
+          "label": "Create Story"
+        },
+        {
+          "value": "createReel",
+          "label": "Create Reel"
+        },
+        {
+          "value": "getMediaInsights",
+          "label": "Get Media Insights"
+        },
+        {
+          "value": "getAccountInsights",
+          "label": "Get Account Insights"
+        }
+      ],
+      "description": "The operation to perform"
+    },
+    {
+      "name": "mediaType",
+      "displayName": "Media Type",
+      "type": "options",
+      "default": "IMAGE",
+      "options": [
+        {
+          "value": "IMAGE",
+          "label": "Image"
+        },
+        {
+          "value": "VIDEO",
+          "label": "Video"
+        },
+        {
+          "value": "CAROUSEL",
+          "label": "Carousel (Multiple Images)"
+        }
+      ],
+      "description": "Type of media to post",
+      "displayOptions": {
+        "show": {
+          "operation": ["createPost"]
+        }
+      }
+    },
+    {
+      "name": "imageUrl",
+      "displayName": "Image URL",
+      "type": "string",
+      "default": "",
+      "required": true,
+      "description": "Public URL of the image to post",
+      "displayOptions": {
+        "show": {
+          "operation": ["createPost", "createStory"],
+          "mediaType": ["IMAGE"]
+        }
+      }
+    },
+    {
+      "name": "videoUrl",
+      "displayName": "Video URL",
+      "type": "string",
+      "default": "",
+      "required": true,
+      "description": "Public URL of the video to post",
+      "displayOptions": {
+        "show": {
+          "operation": ["createPost", "createReel"],
+          "mediaType": ["VIDEO"]
+        }
+      }
+    },
+    {
+      "name": "caption",
+      "displayName": "Caption",
+      "type": "text",
+      "default": "",
+      "description": "Caption for the post (max 2200 characters)",
+      "displayOptions": {
+        "show": {
+          "operation": ["createPost", "createReel"]
+        }
+      }
+    },
+    {
+      "name": "location",
+      "displayName": "Location ID",
+      "type": "string",
+      "default": "",
+      "description": "Facebook Page ID to tag as location",
+      "displayOptions": {
+        "show": {
+          "operation": ["createPost"]
+        }
+      }
+    },
+    {
+      "name": "mediaId",
+      "displayName": "Media ID",
+      "type": "string",
+      "default": "",
+      "required": true,
+      "description": "Instagram media ID for insights",
+      "displayOptions": {
+        "show": {
+          "operation": ["getMediaInsights"]
+        }
+      }
+    },
+    {
+      "name": "metrics",
+      "displayName": "Metrics",
+      "type": "text",
+      "default": "engagement,impressions,reach",
+      "description": "Comma-separated metrics to retrieve",
+      "displayOptions": {
+        "show": {
+          "operation": ["getMediaInsights", "getAccountInsights"]
+        }
+      }
+    }
+  ],
+  "executionCode": "",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-23",
+    "updatedAt": "2025-10-23"
+  }
+}

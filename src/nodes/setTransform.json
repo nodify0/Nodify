@@ -1,0 +1,48 @@
+{
+  "id": "setTransform",
+  "version": "1.0",
+  "name": "Set/Transform",
+  "description": "Set or transform data fields",
+  "group": "Logic",
+  "category": "logic",
+  "shape": "2x2",
+  "color": "#1ABC9C",
+  "icon": "ArrowRightLeft",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "keepOnlySet",
+      "displayName": "Keep Only Set",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "name": "values",
+      "displayName": "Values to Set",
+      "type": "collection",
+      "default": [],
+      "placeholder": "Add Value"
+    }
+  ],
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-06"
+  }
+}

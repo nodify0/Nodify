@@ -1,0 +1,52 @@
+{
+  "id": "set_node",
+  "version": "1.0",
+  "name": "Set",
+  "description": "Create or overwrite data fields manually.",
+  "group": "Data",
+  "category": "data",
+  "shape": "2x2",
+  "color": "#14B8A6",
+  "icon": "Settings2",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "any",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Output",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "values",
+      "displayName": "Values to Set",
+      "type": "json",
+      "ui": {
+        "component": "textarea"
+      },
+      "default": "{\n  \"status\": \"processed\",\n  \"fullName\": \"{{data.firstName}} {{data.lastName}}\"\n}"
+    },
+    {
+      "name": "overwrite",
+      "displayName": "Keep Only Set",
+      "type": "boolean",
+      "default": false,
+      "description": "If enabled, only the fields defined here will be in the output. If disabled, fields are added to the existing data."
+    }
+  ],
+  "executionCode": "helpers.log('Starting Set node');\nconst fieldsValue = node.properties.values.value;\nconst newFields = typeof fieldsValue === 'string' ? JSON.parse(fieldsValue || '{}') : fieldsValue;\nconst keepOnlySet = node.properties.overwrite.value;\nhelpers.log(`Keep Only Set: ${keepOnlySet}`);\nhelpers.log(`Fields to set: ${JSON.stringify(Object.keys(newFields))}`);\nlet result = {};\nif (keepOnlySet) {\n    helpers.log('Overwriting data with new fields only');\n    result = newFields;\n} else {\n    helpers.log('Merging new fields with existing data');\n    result = { ...data, ...newFields };\n}\nhelpers.log(`Result has ${Object.keys(result).length} fields`);\nreturn result;",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-06"
+  }
+}

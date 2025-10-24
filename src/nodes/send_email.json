@@ -1,0 +1,90 @@
+{
+  "id": "send_email",
+  "version": "1.0",
+  "name": "Send Email",
+  "description": "Send an email using SMTP credentials.",
+  "group": "Actions",
+  "category": "action",
+  "shape": "2x2",
+  "color": "#E11D48",
+  "icon": "Mail",
+  "inputs": [
+    {
+      "id": "main",
+      "label": "Input",
+      "position": "left",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "outputs": [
+    {
+      "id": "main",
+      "label": "Sent",
+      "position": "right",
+      "type": "json",
+      "slot": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "smtpServer",
+      "displayName": "SMTP Server",
+      "type": "string",
+      "default": "smtp.gmail.com"
+    },
+    {
+      "name": "smtpPort",
+      "displayName": "SMTP Port",
+      "type": "number",
+      "default": 587
+    },
+    {
+      "name": "username",
+      "displayName": "Username",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "name": "password",
+      "displayName": "Password",
+      "type": "string",
+      "default": "",
+      "ui": {
+        "mask": "password"
+      }
+    },
+    {
+      "name": "to",
+      "displayName": "To",
+      "type": "string",
+      "default": "{{data.email}}",
+      "ui": {
+        "component": "code"
+      }
+    },
+    {
+      "name": "subject",
+      "displayName": "Subject",
+      "type": "string",
+      "default": "Welcome, {{data.name}}!",
+      "ui": {
+        "component": "code"
+      }
+    },
+    {
+      "name": "body",
+      "displayName": "Body (HTML)",
+      "type": "string",
+      "default": "<p>Hello {{data.name}}!</p><p>This is a test.</p><p>Invalid variable: {{data.nonexistent}}</p>",
+      "ui": {
+        "component": "textarea"
+      }
+    }
+  ],
+  "executionCode": "import nodemailer from 'nodemailer';\nconst transporter = nodemailer.createTransport({\n  host: node.properties.smtpServer.value,\n  port: node.properties.smtpPort.value,\n  auth: {\n    user: node.properties.username.value,\n    pass: node.properties.password.value\n  }\n});\n\nconst info = await transporter.sendMail({\n  from: node.properties.username.value,\n  to: node.properties.to.value,\n  subject: node.properties.subject.value,\n  html: node.properties.body.value\n});\n\nreturn { success: true, messageId: info.messageId };",
+  "meta": {
+    "author": "Nodify System",
+    "createdAt": "2025-10-06"
+  }
+}
