@@ -15,6 +15,38 @@ async function ensureDirectoryExists() {
   }
 }
 
+// Recursively search for a JSON node file whose internal id matches
+async function findExistingNodeJsonById(nodeId: string): Promise<string | null> {
+  async function walk(dir: string): Promise<string | null> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = await walk(fullPath);
+        if (found) return found;
+      } else if (entry.isFile() && entry.name.endsWith('.json')) {
+        try {
+          const content = await fs.readFile(fullPath, 'utf-8');
+          const parsed = JSON.parse(content);
+          if (parsed && typeof parsed === 'object' && parsed.id === nodeId) {
+            return fullPath;
+          }
+        } catch {
+          // ignore JSON parse errors in unrelated files
+        }
+      }
+    }
+    return null;
+  }
+
+  try {
+    const found = await walk(nodesDirectory);
+    return found;
+  } catch {
+    return null;
+  }
+}
+
 // GET handler to read a node definition
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -61,8 +93,15 @@ export async function POST(request: Request) {
 
     await ensureDirectoryExists();
 
-    const jsonFilePath = path.join(nodesDirectory, `${nodeData.id}.json`);
-    const jsFilePath = path.join(nodesDirectory, `${nodeData.id}.js`);
+    // Prefer updating an existing built-in JSON whose internal id matches, even if filename differs (e.g., loop.json with id 'loop_node')
+    const existingJson = await findExistingNodeJsonById(nodeData.id);
+    let jsonFilePath = existingJson || path.join(nodesDirectory, `${nodeData.id}.json`);
+    let jsFilePath: string;
+    {
+      const baseDir = path.dirname(jsonFilePath);
+      const baseName = path.basename(jsonFilePath, '.json');
+      jsFilePath = path.join(baseDir, `${baseName}.js`);
+    }
 
     const executionCode = nodeData.executionCode || '';
     

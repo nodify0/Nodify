@@ -185,7 +185,8 @@ export async function POST(request: NextRequest) {
           const snap = await services.getDoc(
             services.doc(services.db, 'users', services.user.uid, 'credentials', credentialId)
           );
-          if (!snap?.exists()) return null;
+          const exists = typeof (snap as any)?.exists === 'function' ? (snap as any).exists() : !!(snap as any)?.exists;
+          if (!exists) return null;
           const data = snap.data();
           return { id: snap.id, ...data };
         } catch (e: any) {

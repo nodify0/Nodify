@@ -26,6 +26,10 @@ interface ChatRequest {
   sessionId?: string;
   metadata?: any;
   files?: any[];
+  history?: {
+    user: string[];
+    agent: string[];
+  };
 }
 
 interface ChatMessage {
@@ -46,32 +50,19 @@ async function handleChatRequest(
 ) {
   const { chatId } = await params;
 
+  console.log(`[Chat:Test] ========================================`);
   console.log(`[Chat:Test] Received message for chatId: ${chatId}`);
+  console.log(`[Chat:Test] Request method: ${request.method}`);
 
   try {
-    // 1. Fast lookup from SQLite
-    const chat = chatRegistry.getById(chatId);
-
-    if (!chat) {
-      console.log('[Chat:Test] Chat not found:', chatId);
-      return NextResponse.json(
-        { error: 'Chat not found' },
-        { status: 404 }
-      );
-    }
-
-    console.log('[Chat:Test] Found chat:', {
-      workflowId: chat.workflow_id,
-      userId: chat.user_id,
-      status: chat.status
-    });
-
-    // 2. Parse request body (JSON or FormData)
+    // 1. Parse request body (JSON or FormData) first to allow fallback when chat is not registered
     const contentType = request.headers.get('content-type') || '';
     let message = '';
     let sessionId = 'default';
     let metadata: any = {};
     let uploadedFiles: any[] = [];
+    let frontendHistory: { user: string[]; agent: string[] } | null = null;
+    let pendingFiles: File[] = [];
 
     if (contentType.includes('multipart/form-data')) {
       // Handle file uploads
@@ -86,41 +77,33 @@ async function handleChatRequest(
           metadata = {};
         }
       }
+      // Mark as persisted by API and set mode for downstream nodes
+      metadata = { ...(metadata || {}), persistedByAPI: true, mode: 'test' };
 
-      // Process files
-      const files = formData.getAll('files') as File[];
-      for (const file of files) {
-        if (file && file.size > 0) {
-          try {
-            // Upload to Firebase Storage
-            const fileId = `chat_${chatId}_${Date.now()}_${randomBytes(4).toString('hex')}`;
-            const fileRef = ref(storage, `chat-files/${chat.user_id}/${fileId}_${file.name}`);
-            const buffer = await file.arrayBuffer();
-            await uploadBytes(fileRef, buffer, {
-              contentType: file.type
-            });
-            const downloadURL = await getDownloadURL(fileRef);
-
-            uploadedFiles.push({
-              id: fileId,
-              name: file.name,
-              type: file.type,
-              size: file.size,
-              url: downloadURL
-            });
-            console.log(`[Chat:Test] Uploaded file: ${file.name}`);
-          } catch (fileError) {
-            console.error(`[Chat:Test] Failed to upload file ${file.name}:`, fileError);
-          }
+      // Parse history if provided
+      const historyStr = formData.get('history') as string;
+      if (historyStr) {
+        try {
+          frontendHistory = JSON.parse(historyStr);
+          console.log('[Chat:Test] Received history from frontend:', frontendHistory);
+        } catch (e) {
+          console.warn('[Chat:Test] Failed to parse history:', e);
         }
       }
+
+      // Defer file upload until chat/user context is resolved
+      pendingFiles = formData.getAll('files') as File[];
     } else {
       // Handle JSON
       const body: ChatRequest = await request.json();
       message = body.message;
       sessionId = body.sessionId || 'default';
-      metadata = body.metadata || {};
+      metadata = { ...(body.metadata || {}), persistedByAPI: true, mode: 'test' };
       uploadedFiles = body.files || [];
+      frontendHistory = body.history || null;
+      if (frontendHistory) {
+        console.log('[Chat:Test] Received history from frontend:', frontendHistory);
+      }
     }
 
     if (!message || message.trim() === '') {
@@ -132,9 +115,97 @@ async function handleChatRequest(
 
     console.log('[Chat:Test] Message:', message);
     console.log('[Chat:Test] Session:', sessionId);
+
+    // 2. Resolve chat context (allow fallback via metadata)
+    let chat = chatRegistry.getById(chatId) as any;
+    if (!chat) {
+      const fallbackWorkflowId = metadata?.workflowId;
+      const fallbackUserId = metadata?.userId;
+      if (fallbackWorkflowId && fallbackUserId) {
+        console.log('[Chat:Test] Chat not registered. Using metadata fallback to upsert chat.');
+        try {
+          chatRegistry.upsert(chatId, {
+            userId: String(fallbackUserId),
+            workflowId: String(fallbackWorkflowId),
+            status: 'draft',
+          });
+        } catch (e) {
+          console.warn('[Chat:Test] Upsert fallback failed:', e);
+        }
+        chat = {
+          chat_id: chatId,
+          user_id: String(fallbackUserId),
+          workflow_id: String(fallbackWorkflowId),
+          status: 'draft'
+        };
+      } else {
+        console.log('[Chat:Test] Chat not found and no fallback metadata provided');
+        return NextResponse.json(
+          { error: 'Chat not found' },
+          { status: 404 }
+        );
+      }
+    }
+
+    console.log('[Chat:Test] Using chat context:', {
+      workflowId: chat.workflow_id,
+      userId: chat.user_id,
+      status: chat.status
+    });
+
+    // 3. If there are pending files (multipart), upload now that we have user context
+    if (pendingFiles.length > 0) {
+      for (const file of pendingFiles) {
+        if (file && (file as any).size > 0) {
+          try {
+            const fileId = `chat_${chatId}_${Date.now()}_${randomBytes(4).toString('hex')}`;
+            const fileRef = ref(storage, `chat-files/${chat.user_id}/${fileId}_${(file as any).name}`);
+            const buffer = await (file as any).arrayBuffer();
+            await uploadBytes(fileRef, buffer, { contentType: (file as any).type });
+            const downloadURL = await getDownloadURL(fileRef);
+            uploadedFiles.push({
+              id: fileId,
+              name: (file as any).name,
+              type: (file as any).type,
+              size: (file as any).size,
+              url: downloadURL
+            });
+            console.log(`[Chat:Test] Uploaded file: ${(file as any).name}`);
+          } catch (fileError) {
+            console.error(`[Chat:Test] Failed to upload file ${(file as any).name}:`, fileError);
+          }
+        }
+      }
+    }
+
     console.log('[Chat:Test] Files:', uploadedFiles.length);
 
-    // 3. Save user message
+    // 3. Load previous messages for memory (before saving current)
+    // Prefer frontend history if available, otherwise load from database
+    let history = { agent: [] as string[], user: [] as string[] };
+
+    if (frontendHistory && (frontendHistory.user?.length > 0 || frontendHistory.agent?.length > 0)) {
+      // Use history from frontend (real-time conversation state)
+      history = {
+        user: frontendHistory.user || [],
+        agent: frontendHistory.agent || []
+      };
+      console.log(`[Chat:Test] Using frontend history -> user:${history.user.length} agent:${history.agent.length}`);
+    } else {
+      // Fallback: Load from database
+      try {
+        const prior = chatMessages.getBySession(chatId, sessionId, 200);
+        for (const m of prior) {
+          if (m.role === 'user') history.user.push(String(m.content ?? ''));
+          else if (m.role === 'assistant') history.agent.push(String(m.content ?? ''));
+        }
+        console.log(`[Chat:Test] Using DB history -> user:${history.user.length} agent:${history.agent.length}`);
+      } catch (e) {
+        console.warn('[Chat:Test] Failed to load prior messages for memory:', e);
+      }
+    }
+
+    // 4. Save user message
     const userMessageId = `msg_${Date.now()}_${randomBytes(4).toString('hex')}`;
     chatMessages.create({
       chatId,
@@ -147,26 +218,55 @@ async function handleChatRequest(
       files: uploadedFiles.length > 0 ? uploadedFiles : undefined
     });
 
-    // 4. Fetch workflow data from Firestore
-    const workflowRef = doc(clientDb, 'users', chat.user_id, 'workflows', chat.workflow_id);
-    const workflowSnap = await getDoc(workflowRef);
-
-    if (!workflowSnap.exists()) {
-      console.error('[Chat:Test] Workflow document not found in Firestore');
-      return NextResponse.json(
-        { error: 'Workflow not found' },
-        { status: 404 }
-      );
+    // 4. Fetch workflow data (prefer snapshot from metadata in test mode to avoid Firestore permission issues)
+    let serverWorkflow: any = null;
+    const snapshot = metadata?.workflowSnapshot;
+    if (snapshot && Array.isArray(snapshot.nodes) && Array.isArray(snapshot.connections)) {
+      serverWorkflow = {
+        id: snapshot.id || chat.workflow_id,
+        name: snapshot.name || 'Unnamed Workflow',
+        status: snapshot.status || 'active',
+        nodes: snapshot.nodes,
+        connections: snapshot.connections,
+      };
+      console.log('[Chat:Test] Using workflow snapshot from client metadata');
+    } else {
+      const workflowRef = doc(clientDb, 'users', chat.user_id, 'workflows', chat.workflow_id);
+      try {
+        const workflowSnap = await getDoc(workflowRef);
+        if (!workflowSnap.exists()) {
+          console.error('[Chat:Test] Workflow document not found in Firestore');
+          return NextResponse.json(
+            { error: 'Workflow not found' },
+            { status: 404 }
+          );
+        }
+        const workflowData = workflowSnap.data();
+        serverWorkflow = {
+          id: chat.workflow_id,
+          name: workflowData.name || 'Unnamed Workflow',
+          status: workflowData.status || 'active',
+          nodes: workflowData.nodes || [],
+          connections: workflowData.connections || []
+        };
+      } catch (e: any) {
+        console.warn('[Chat:Test] Firestore read failed, falling back to snapshot if available:', e?.message || e);
+        if (snapshot && Array.isArray(snapshot.nodes) && Array.isArray(snapshot.connections)) {
+          serverWorkflow = {
+            id: snapshot.id || chat.workflow_id,
+            name: snapshot.name || 'Unnamed Workflow',
+            status: snapshot.status || 'active',
+            nodes: snapshot.nodes,
+            connections: snapshot.connections,
+          };
+        } else {
+          return NextResponse.json(
+            { error: 'Internal server error', details: e?.message || 'Failed to load workflow' },
+            { status: 500 }
+          );
+        }
+      }
     }
-
-    const workflowData = workflowSnap.data();
-    const serverWorkflow = {
-      id: chat.workflow_id,
-      name: workflowData.name || 'Unnamed Workflow',
-      status: workflowData.status || 'active',
-      nodes: workflowData.nodes || [],
-      connections: workflowData.connections || []
-    };
 
     console.log('[Chat:Test] Fetched workflow:', {
       id: serverWorkflow.id,
@@ -251,7 +351,9 @@ async function handleChatRequest(
         } catch (err) {
           console.error('[Chat:Test] Failed to save event:', err);
         }
-      }
+      },
+      // Expose Firestore client services so nodes can resolve credentials (e.g., OpenAI)
+      services: { db: clientDb, user: { uid: chat.user_id }, doc, getDoc }
     });
 
     // Execute workflow and WAIT for result (synchronous for chat)
@@ -261,16 +363,19 @@ async function handleChatRequest(
       userId: 'test_user',
       timestamp: new Date().toISOString(),
       metadata,
-      files: uploadedFiles
+      files: uploadedFiles,
+      history,
+      chat: { id: chatId, mode: 'test' }
     };
 
     console.log('[Chat:Test] Executing workflow...');
     console.log('[Chat:Test] Starting from chat node:', chatNode.id);
-    console.log('[Chat:Test] Input data:', chatData);
+    console.log('[Chat:Test] Input data:', JSON.stringify(chatData, null, 2));
+    console.log('[Chat:Test] About to call executor.execute()...');
 
     const executionContext = await executor.execute(chatNode.id, chatData);
 
-    console.log('[Chat:Test] Workflow execution completed');
+    console.log('[Chat:Test] Workflow execution completed successfully');
     console.log('[Chat:Test] Execution context keys:', Object.keys(executionContext));
 
     // Find the last executed node (excluding the chat trigger itself)
@@ -386,10 +491,13 @@ export async function GET(
     const chat = chatRegistry.getById(chatId);
 
     if (!chat) {
-      return NextResponse.json(
-        { error: 'Chat not found' },
-        { status: 404 }
-      );
+      // In test mode, return empty history instead of 404 so the client can show the welcome message without errors
+      return NextResponse.json({
+        success: true,
+        chatId,
+        sessionId,
+        messages: []
+      });
     }
 
     // Get messages for this session

@@ -4,6 +4,7 @@
   "name": "WhatsApp",
   "description": "Send messages, images, and documents via WhatsApp Business API.",
   "group": "Social Media",
+  "subGroup": "WhatsApp",
   "category": "action",
   "shape": "circle",
   "color": "#25D366",

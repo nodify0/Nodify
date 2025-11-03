@@ -4,6 +4,7 @@
   "name": "Telegram",
   "description": "Send messages, photos, videos, and documents to Telegram chats and channels.",
   "group": "Social Media",
+  "subGroup": "Telegram",
   "category": "action",
   "shape": "circle",
   "color": "#0088cc",

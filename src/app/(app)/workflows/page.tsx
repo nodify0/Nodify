@@ -2,18 +2,18 @@
 'use client';
 
 import { Button } from "@/components/ui/button";
-import { Plus, Workflow as WorkflowIcon, MoreVertical, Copy, Trash2, Search, LoaderCircle, FolderPlus, Folder as FolderIcon, Move, FolderUp, ArrowLeft, FolderOpen } from "lucide-react";
+import { Plus, Workflow as WorkflowIcon, MoreVertical, Copy, Trash2, Search, LoaderCircle, FolderPlus, Folder as FolderIcon, Move, FolderUp, ArrowLeft, FolderOpen, History, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuPortal } from "@/components/ui/dropdown-menu";
 import { useState, useMemo, useEffect } from "react";
-import type { Workflow } from "@/lib/types";
+import type { Workflow, WorkflowExecution } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useCollection, useFirestore, useUser } from "@/firebase";
-import { collection, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, increment } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, increment, collectionGroup, query, where, getDocs } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
@@ -177,14 +177,26 @@ const CreateWorkflowDialog = ({
     );
 }
 
-const WorkflowList = ({ workflows, folders, onMoveToFolder, onDuplicate, onDelete, onStatusChange }: { workflows: Workflow[], folders: Folder[], onMoveToFolder: (wfId: string, fId: string | null) => void, onDuplicate: (wfId: string) => void, onDelete: (wfId: string) => void, onStatusChange: (wfId: string, newStatus: 'active' | 'inactive') => void }) => {
+const WorkflowList = ({ workflows, folders, onMoveToFolder, onDuplicate, onDelete, onStatusChange, executionStats }: {
+  workflows: Workflow[],
+  folders: Folder[],
+  onMoveToFolder: (wfId: string, fId: string | null) => void,
+  onDuplicate: (wfId: string) => void,
+  onDelete: (wfId: string) => void,
+  onStatusChange: (wfId: string, newStatus: 'active' | 'inactive') => void,
+  executionStats?: Record<string, { success: number; failed: number }>
+}) => {
 
     if (workflows.length === 0) return null;
 
     return (
         <div className="border rounded-lg">
             <ul className="divide-y divide-border">
-                {workflows.map((workflow) => (
+                {workflows.map((workflow) => {
+                    const stats = executionStats?.[workflow.id] || { success: 0, failed: 0 };
+                    const hasExecutions = stats.success > 0 || stats.failed > 0;
+
+                    return (
                 <li key={workflow.id} className="group hover:bg-secondary/50 transition-colors">
                     <Link href={`/workflows/${workflow.id}`} className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-4">
@@ -192,6 +204,20 @@ const WorkflowList = ({ workflows, folders, onMoveToFolder, onDuplicate, onDelet
                         <div>
                         <p className="font-semibold">{workflow.name}</p>
                         <p className="text-sm text-muted-foreground">{workflow.description}</p>
+                        {hasExecutions && (
+                            <div className="flex items-center gap-3 mt-1">
+                                <div className="flex items-center gap-1">
+                                    <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                    <span className="text-xs text-green-500 font-medium">{stats.success}</span>
+                                </div>
+                                {stats.failed > 0 && (
+                                    <div className="flex items-center gap-1">
+                                        <XCircle className="h-3 w-3 text-red-500" />
+                                        <span className="text-xs text-red-500 font-medium">{stats.failed}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -260,7 +286,8 @@ const WorkflowList = ({ workflows, folders, onMoveToFolder, onDuplicate, onDelet
                     </div>
                     </Link>
                 </li>
-                ))}
+                );
+                })}
             </ul>
         </div>
     )
@@ -279,6 +306,7 @@ export default function WorkflowsPage() {
   const { data: workflows, isLoading } = useCollection<Workflow>(workflowsQuery);
   
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [executionStats, setExecutionStats] = useState<Record<string, { success: number; failed: number }>>({});
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -286,6 +314,42 @@ export default function WorkflowsPage() {
   const [folderForNewWorkflow, setFolderForNewWorkflow] = useState<Folder | null>(null);
 
   const statuses = ['all', 'active', 'inactive', 'draft'];
+
+  // Load execution stats for all workflows
+  useEffect(() => {
+    if (!user || !workflows) return;
+
+    const loadExecutionStats = async () => {
+      try {
+        const stats: Record<string, { success: number; failed: number }> = {};
+
+        // Load executions using collectionGroup
+        const executionsQuery = query(
+          collectionGroup(firestore, 'executions'),
+          where('ownerId', '==', user.uid)
+        );
+
+        const snapshot = await getDocs(executionsQuery);
+        snapshot.docs.forEach(doc => {
+          const execution = doc.data() as WorkflowExecution;
+          if (!stats[execution.workflowId]) {
+            stats[execution.workflowId] = { success: 0, failed: 0 };
+          }
+          if (execution.status === 'success') {
+            stats[execution.workflowId].success++;
+          } else if (execution.status === 'error') {
+            stats[execution.workflowId].failed++;
+          }
+        });
+
+        setExecutionStats(stats);
+      } catch (error) {
+        console.error('[WorkflowsPage] Error loading execution stats:', error);
+      }
+    };
+
+    loadExecutionStats();
+  }, [user, workflows, firestore]);
 
   useEffect(() => {
     if (workflows) {
@@ -444,7 +508,7 @@ export default function WorkflowsPage() {
         <div className="flex items-center gap-2 w-full">
           <div className="flex items-center w-full max-w-md h-10 px-3 rounded-lg border bg-card focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background transition-shadow">
               <Search className="h-5 w-5 text-muted-foreground" />
-              <Input 
+              <Input
                 placeholder="Search workflows..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -464,7 +528,15 @@ export default function WorkflowsPage() {
                   </SelectContent>
               </Select>
           </div>
-          <CreateFolderDialog onConfirm={handleCreateFolder} />
+          <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/executions">
+                <History className="h-4 w-4 mr-2" />
+                Executions
+              </Link>
+            </Button>
+            <CreateFolderDialog onConfirm={handleCreateFolder} />
+          </div>
         </div>
       </header>
       <main className="flex-1 overflow-auto p-4 md:p-6 space-y-8">
@@ -491,7 +563,7 @@ export default function WorkflowsPage() {
                             Add
                         </Button>
                     </div>
-                    <WorkflowList workflows={folderWorkflows} folders={folders} onMoveToFolder={handleMoveToFolder} onDuplicate={handleDuplicateWorkflow} onDelete={handleDeleteWorkflow} onStatusChange={handleStatusChange} />
+                    <WorkflowList workflows={folderWorkflows} folders={folders} onMoveToFolder={handleMoveToFolder} onDuplicate={handleDuplicateWorkflow} onDelete={handleDeleteWorkflow} onStatusChange={handleStatusChange} executionStats={executionStats} />
                 </div>
             ))}
             
@@ -500,7 +572,7 @@ export default function WorkflowsPage() {
                     <h2 className="text-xl font-bold flex items-center gap-2 mb-4">
                         Workflows
                     </h2>
-                    <WorkflowList workflows={filteredAndGroupedData.ungrouped} folders={folders} onMoveToFolder={handleMoveToFolder} onDuplicate={handleDuplicateWorkflow} onDelete={handleDeleteWorkflow} onStatusChange={handleStatusChange} />
+                    <WorkflowList workflows={filteredAndGroupedData.ungrouped} folders={folders} onMoveToFolder={handleMoveToFolder} onDuplicate={handleDuplicateWorkflow} onDelete={handleDeleteWorkflow} onStatusChange={handleStatusChange} executionStats={executionStats} />
                 </div>
             )}
             

@@ -229,13 +229,103 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
   const [sourceForNodeCreation, setSourceForNodeCreation] = useState<{sourceNodeId: string, sourceHandleId: string} | null>(null);
   const [nodeCreationPosition, setNodeCreationPosition] = useState<XYPosition | null>(null);
   const [isSaveAsOpen, setIsSaveAsOpen] = useState(false);
+
+  // Simple auto-organize: layer nodes left->right by BFS from triggers, with vertical spacing
+  const organizeNodes = useCallback(() => {
+    try {
+      const rfNodes = getNodes();
+      const rfEdges = getEdges();
+
+      // Build maps
+      const nodesById = new Map(rfNodes.map(n => [n.id, n] as const));
+      const incoming = new Map<string, number>();
+      const outgoing = new Map<string, string[]>();
+      rfNodes.forEach(n => { incoming.set(n.id, 0); outgoing.set(n.id, []); });
+      rfEdges.forEach(e => {
+        if (!incoming.has(e.target)) incoming.set(e.target, 0);
+        incoming.set(e.target, (incoming.get(e.target) || 0) + 1);
+        const arr = outgoing.get(e.source) || [];
+        arr.push(e.target);
+        outgoing.set(e.source, arr);
+      });
+
+      // Identify triggers or sources as starting points
+      const isTrigger = (id: string) => {
+        const n = nodesById.get(id);
+        if (!n) return false;
+        const def = getNodeDefinition(n.data.type);
+        return def?.category === 'trigger';
+      };
+
+      const queue: string[] = [];
+      const layer = new Map<string, number>();
+
+      rfNodes.forEach(n => {
+        const indeg = incoming.get(n.id) || 0;
+        if (isTrigger(n.id) || indeg === 0) {
+          queue.push(n.id);
+          layer.set(n.id, 0);
+        }
+      });
+
+      // BFS layering
+      while (queue.length) {
+        const u = queue.shift()!;
+        const lu = layer.get(u) || 0;
+        const outs = outgoing.get(u) || [];
+        outs.forEach(v => {
+          if (!layer.has(v)) {
+            layer.set(v, lu + 1);
+            queue.push(v);
+          }
+        });
+      }
+
+      // Group nodes by layer
+      const layers = new Map<number, string[]>();
+      rfNodes.forEach(n => {
+        const l = layer.has(n.id) ? (layer.get(n.id) as number) : 0;
+        const arr = layers.get(l) || [];
+        arr.push(n.id);
+        layers.set(l, arr);
+      });
+
+      // Compute positions
+      const baseX = 100; const baseY = 100; const hGap = 320; const vGap = 140;
+      const newPos = new Map<string, { x: number; y: number }>();
+      const sortedLayers = Array.from(layers.keys()).sort((a,b)=>a-b);
+      sortedLayers.forEach((lIdx) => {
+        const ids = layers.get(lIdx) || [];
+        // Keep roughly the previous vertical order
+        ids.sort((a,b) => (nodesById.get(a)?.position.y || 0) - (nodesById.get(b)?.position.y || 0));
+        ids.forEach((id, i) => {
+          const n = nodesById.get(id);
+          if (!n) return;
+          // Skip group stickers (do not reposition)
+          if (n.type === 'groupSticker') return;
+          // Keep children inside parents untouched
+          if (n.parentId) return;
+          newPos.set(id, { x: baseX + lIdx * hGap, y: baseY + i * vGap });
+        });
+      });
+
+      setNodes(prev => prev.map(n => newPos.has(n.id) ? { ...n, position: newPos.get(n.id)! } : n));
+      // Optionally fit view after arrange
+      setTimeout(() => { try { fitView({ padding: 0.2, duration: 300 }); } catch {} }, 50);
+    } catch (e) {
+      console.error('[Editor] organizeNodes failed:', e);
+    }
+  }, [getNodes, getEdges, setNodes, fitView]);
   
   const handleSave = useCallback(async (nodesToSave: Node<NodeData>[], edgesToSave: Edge[]) => {
     if (!user || !workflow) return;
 
     const workflowDocRef = doc(firestore, 'users', user.uid, 'workflows', workflow.id);
+    // Safety: avoid saving empty arrays due to async state races
+    const effectiveNodes = (nodesToSave && nodesToSave.length > 0) ? nodesToSave : getNodes();
+    const effectiveEdges = (edgesToSave && edgesToSave.length > 0) ? edgesToSave : getEdges();
 
-    const nodesForDb = nodesToSave.map(n => ({
+    const nodesForDb = effectiveNodes.map(n => ({
       id: n.id,
       type: n.data.type,
       label: n.data.label,
@@ -245,7 +335,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
       parentId: n.parentId || null,
     }));
 
-    const connectionsForDb = edgesToSave.map(e => ({
+    const connectionsForDb = effectiveEdges.map(e => ({
       id: e.id,
       sourceNodeId: e.source,
       sourceHandle: e.sourceHandle,
@@ -368,6 +458,57 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
         }
       }
       // ========== END SQLITE WEBHOOK REGISTRATION ==========
+
+      // ========== SQLITE WHATSAPP REGISTRATION ==========
+      const newWaNodes = nodesToSave.filter(n => n.data.type === 'whatsapp_trigger' && n.data.config?.whatsappId);
+      for (const waNode of newWaNodes) {
+        try {
+          const whatsappId = waNode.data.config.whatsappId;
+          const verifyToken = waNode.data.config.verifyToken || undefined;
+          const appSecret = waNode.data.config.appSecret || undefined;
+          const credentialId = waNode.data.config.credential || undefined;
+          const response = await fetch('/api/whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              whatsappId,
+              userId: user.uid,
+              workflowId: workflow.id,
+              status: workflow.status || 'draft',
+              verifyToken,
+              appSecret,
+              credentialId,
+            }),
+          });
+          if (!response.ok) throw new Error('Failed to register WhatsApp');
+          console.log(`[WorkflowEditor] WhatsApp registered in SQLite: ${whatsappId} -> ${workflow.id}`);
+        } catch (err) {
+          console.error('[WorkflowEditor] Failed to register WhatsApp in SQLite:', err);
+        }
+      }
+
+      const oldWaIds = new Set(
+        workflow.nodes
+          .filter((n: any) => n.type === 'whatsapp_trigger' && n.config?.whatsappId)
+          .map((n: any) => n.config.whatsappId)
+      );
+      const newWaIds = new Set(
+        nodesToSave
+          .filter(n => n.data.type === 'whatsapp_trigger' && n.data.config?.whatsappId)
+          .map(n => n.data.config.whatsappId)
+      );
+      for (const oldWaId of oldWaIds) {
+        if (!newWaIds.has(oldWaId)) {
+          try {
+            const res = await fetch(`/api/whatsapp?whatsappId=${oldWaId}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed to unregister WhatsApp');
+            console.log(`[WorkflowEditor] WhatsApp unregistered from SQLite: ${oldWaId}`);
+          } catch (err) {
+            console.error('[WorkflowEditor] Failed to unregister WhatsApp from SQLite:', err);
+          }
+        }
+      }
+      // ========== END SQLITE WHATSAPP REGISTRATION ==========
 
       // ========== SQLITE FORM REGISTRATION (ACTIVE) ==========
       const formNode = nodesToSave.find(n => n.data.type === 'form_submit_trigger');
@@ -505,6 +646,18 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
           config: {
             ...n.config,
             chatId: newChatId
+          }
+        };
+      }
+      if (n.type === 'whatsapp_trigger' && (!n.config?.whatsappId || n.config.whatsappId === 'not_generated')) {
+        needsUpdate = true;
+        const newWaId = `wa_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        console.log(`[WorkflowEditor] Auto-generating whatsappId for existing node: ${newWaId}`);
+        return {
+          ...n,
+          config: {
+            ...n.config,
+            whatsappId: newWaId
           }
         };
       }
@@ -656,40 +809,38 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
   }, [setNodes, setEdges, getNodes, getEdges, toast]);
   
   const handleUpdateNode = useCallback((nodeId: string, newConfig: any, newLabel?: string) => {
-    let updatedNodes: Node<NodeData>[] = [];
-    let updatedNode: Node<NodeData> | null = null;
+    // Build the updated nodes array synchronously to avoid saving an empty array due to async state batching
+    const currentNodes = getNodes();
     let oldProperties: any = null;
+    let updatedNode: Node<NodeData> | null = null;
 
-    setNodesInternal(nds => {
-        updatedNodes = nds.map(n => {
-            if (n.id === nodeId) {
-                // Capture old properties before update
-                oldProperties = n.data.config;
+    const newNodes = currentNodes.map(n => {
+      if (n.id === nodeId) {
+        oldProperties = n.data.config;
+        const updatedData = {
+          ...n.data,
+          config: newConfig,
+          label: newLabel !== undefined ? newLabel : n.data.label
+        };
+        const nodeToReturn: Node<NodeData> = { ...n, data: updatedData };
 
-                const updatedData = {
-                    ...n.data,
-                    config: newConfig,
-                    label: newLabel !== undefined ? newLabel : n.data.label
-                };
+        if (n.type === 'groupSticker') {
+          const { backgroundColor, width, height } = newConfig;
+          const newStyle: React.CSSProperties = { ...n.style };
+          if (width) newStyle.width = width;
+          if (height) newStyle.height = height;
+          if (backgroundColor) newStyle.backgroundColor = backgroundColor;
+          nodeToReturn.style = newStyle;
+        }
 
-                const nodeToReturn = { ...n, data: updatedData };
-
-                if (n.type === 'groupSticker') {
-                    const { backgroundColor, width, height } = newConfig;
-                    const newStyle: React.CSSProperties = { ...n.style };
-                    if (width) newStyle.width = width;
-                    if (height) newStyle.height = height;
-                    if (backgroundColor) newStyle.backgroundColor = backgroundColor;
-                    nodeToReturn.style = newStyle;
-                }
-
-                updatedNode = nodeToReturn;
-                return nodeToReturn;
-            }
-            return n;
-        });
-        return updatedNodes;
+        updatedNode = nodeToReturn;
+        return nodeToReturn;
+      }
+      return n;
     });
+
+    // Update state using the computed array
+    setNodesInternal(newNodes);
 
     // Execute onUpdate hook if it exists
     if (updatedNode) {
@@ -708,8 +859,9 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
       }
     }
 
-    handleSave(updatedNodes, getEdges());
-  }, [getEdges, handleSave]);
+    // Save using the computed array to avoid race conditions
+    handleSave(newNodes, getEdges());
+  }, [getEdges, getNodes, handleSave]);
 
   // Handle test chat messages - execute workflow in frontend with animations
   const handleTestChatMessage = useCallback(async (message: string, files?: File[]): Promise<string> => {
@@ -753,7 +905,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
           onNodeEnd: (nodeId, input, output, duration, logs) => {
             console.log('[Editor] Node ended:', nodeId, 'Output:', output);
             setExecutingNodes(prev => { const next = new Set(prev); next.delete(nodeId); return next; });
-            if (output?.error) setErrorNodes(prev => new Set(prev).add(nodeId));
+            if (output?.error || output?.path === 'error') setErrorNodes(prev => new Set(prev).add(nodeId));
             else setCompletedNodes(prev => new Set(prev).add(nodeId));
             setExecutionData(prev => ({ ...prev, [nodeId]: { input, output, files: output?.files || input?.files || null, logs: logs || [] } }));
           },
@@ -765,6 +917,15 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
           onWorkflowEnd: () => {
             console.log('[Editor] Workflow execution completed');
             setActiveEdgeId(null);
+            setExecutingNodes(new Set());
+            // Emit workflow_end event for test runner consistency
+            if (executionId) {
+              fetch('/api/workflow/execution-events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ executionId, eventType: 'workflow_end' }),
+              }).catch(err => console.error('[WorkflowEngine] Failed to emit workflow_end event:', err));
+            }
             setCurrentExecutionId(null);
           },
           onExecutionUpdate: (execContext) => setExecutionContext(execContext),
@@ -796,7 +957,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                     onNodeEnd: (subNodeId, input, output, duration, logs) => {
                       console.log(`[${nodeId}] Sub-workflow node ended:`, subNodeId);
                       setExecutingNodes(prev => { const next = new Set(prev); next.delete(subNodeId); return next; });
-                      if (output?.error) setErrorNodes(prev => new Set(prev).add(subNodeId));
+                      if (output?.error || output?.path === 'error') setErrorNodes(prev => new Set(prev).add(subNodeId));
                       else setCompletedNodes(prev => new Set(prev).add(subNodeId));
                       setExecutionData(prev => ({ ...prev, [subNodeId]: { input, output, files: output?.files || input?.files || null, logs: logs || [] } }));
                     },
@@ -936,7 +1097,123 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
     [selectedNodeId]
   );
 
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdgesInternal(eds => applyEdgeChanges(changes, eds)), []);
+  // onEdgesChange defined after ensureLoopBackEdge to avoid TDZ issues
+
+  // Ensure Loop branch tail always connects back to Loop's 'continue' input
+  const ensureLoopBackEdge = useCallback((edgesList: Edge[]): Edge[] => {
+    try {
+      const rfNodes = getNodes();
+      const rfEdges = edgesList;
+
+      const nodesById = new Map(rfNodes.map(n => [n.id, n] as const));
+      const outgoing = new Map<string, Edge[]>();
+      rfEdges.forEach(e => {
+        const arr = outgoing.get(e.source) || [];
+        arr.push(e);
+        outgoing.set(e.source, arr);
+      });
+
+      let updated = rfEdges.slice();
+      let changed = false;
+
+      const isLoopNode = (n: any) => {
+        const def = getNodeDefinition(n?.data?.type || '');
+        return def?.id === 'loop_node';
+      };
+
+      const loopNodes = rfNodes.filter(isLoopNode);
+      for (const loopNode of loopNodes) {
+        const loopId = loopNode.id;
+        const loopOut = (outgoing.get(loopId) || []).filter(e => e.sourceHandle === 'loop');
+        if (loopOut.length === 0) continue; // nothing to do
+
+        // Traverse from all loopOut targets and find the deepest leaf that does not point back to loop
+        const visited = new Set<string>();
+        const dist = new Map<string, number>();
+        const queue: string[] = [];
+        // start points
+        for (const e of loopOut) {
+          if (!visited.has(e.target)) {
+            visited.add(e.target);
+            dist.set(e.target, 1);
+            queue.push(e.target);
+          }
+        }
+
+        const isBackToLoop = (e: Edge) => e.target === loopId && e.targetHandle === 'continue';
+
+        while (queue.length) {
+          const cur = queue.shift()!;
+          const curOut = (outgoing.get(cur) || []).filter(e => e.target !== loopId); // don't follow edges back to loop
+          for (const e of curOut) {
+            if (isBackToLoop(e)) continue; // ignore explicit back-edge in traversal
+            if (!visited.has(e.target)) {
+              visited.add(e.target);
+              dist.set(e.target, (dist.get(cur) || 0) + 1);
+              queue.push(e.target);
+            }
+          }
+        }
+
+        // leaves: nodes with no outgoing edges to other nodes (excluding back-edge to loop)
+        const leaves: Array<{ id: string; depth: number } > = [];
+        visited.forEach(id => {
+          const outs = (outgoing.get(id) || []).filter(e => e.target !== loopId);
+          if (outs.length === 0) {
+            leaves.push({ id, depth: dist.get(id) || 0 });
+          }
+        });
+        if (leaves.length === 0) continue;
+
+        // pick deepest leaf
+        leaves.sort((a,b) => b.depth - a.depth);
+        const tailId = leaves[0].id;
+
+        // Remove any existing back-edges to loop.continue that are not from tail
+        const beforeCount = updated.length;
+        updated = updated.filter(e => !(e.target === loopId && e.targetHandle === 'continue' && e.source !== tailId));
+        if (updated.length !== beforeCount) changed = true;
+
+        // Ensure back-edge from tail to loop.continue exists
+        let exists = false;
+        updated = updated.map(e => {
+          if (e.source === tailId && e.target === loopId && e.targetHandle === 'continue') {
+            exists = true;
+            return { ...e, data: { ...(e.data || {}), isLoopBack: true } } as Edge;
+          }
+          return e;
+        });
+        if (!exists) {
+          // Pick default output handle 'main'
+          const tailNode = nodesById.get(tailId);
+          const tailDef = getNodeDefinition(tailNode?.data?.type || '');
+          const outHandle = tailDef?.outputs?.[0]?.id || 'main';
+          const newEdge: Edge = {
+            id: `reactflow__edge-${tailId}${outHandle}-${loopId}continue`,
+            source: tailId,
+            sourceHandle: outHandle,
+            target: loopId,
+            targetHandle: 'continue',
+            type: 'custom',
+            data: { isLoopBack: true }
+          } as Edge;
+          updated = addEdge(newEdge, updated);
+          changed = true;
+        }
+      }
+
+      return changed ? updated : edgesList;
+    } catch {
+      return edgesList;
+    }
+  }, [getNodes]);
+
+  // Apply loop back-edge normalization on every edges change
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) =>
+      setEdgesInternal((eds) => ensureLoopBackEdge(applyEdgeChanges(changes, eds))),
+    [ensureLoopBackEdge]
+  );
 
   const onConnect = useCallback(
   (connection: Connection) => {
@@ -1025,7 +1302,11 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
             data: {},
         };
 
-    setEdgesInternal(eds => addEdge(edge, eds));
+    // Add the edge and then ensure loop back-edge integrity
+    setEdgesInternal(eds => {
+      const next = addEdge(edge, eds);
+      return ensureLoopBackEdge(next);
+    });
 
     // Execute onConnect hook for both source and target nodes
     const sourceNodeForHook = {
@@ -1155,6 +1436,9 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
 
     if (nodeDefinition.id === 'chat_trigger') {
       nodeConfig.chatId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    if (nodeDefinition.id === 'whatsapp_trigger') {
+      nodeConfig.whatsappId = `wa_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
     const baseName = nodeDefinition.name;
@@ -1901,7 +2185,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
         }
     };
   
-    const handleSaveAs = async (newName: string) => {
+  const handleSaveAs = async (newName: string) => {
       if (!user || !workflow) return;
       const workflowsCollection = collection(firestore, 'users', user.uid, 'workflows');
   
@@ -1933,7 +2217,67 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
         createdAt: serverTimestamp(),
         folderId: workflow.folderId,
         metadata: { viewport: { x, y, zoom } },
-      };
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMod = e.ctrlKey || e.metaKey;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const editable = (e.target as HTMLElement)?.isContentEditable;
+      // Avoid interfering with typing in inputs/editors
+      if (tag === 'input' || tag === 'textarea' || editable) return;
+
+      // Ctrl/Cmd + S => Save
+      if (isMod && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        try {
+          handleSave(getNodes(), getEdges());
+          toast({ title: 'Saved', description: 'Workflow saved (Ctrl+S)' });
+        } catch {
+          console.log("Error: CTRL + S");
+        }
+      }
+
+      // Ctrl/Cmd + R => Run workflow or open chat
+      if (isMod && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        try {
+          const chatNode = getNodes().find(n => n.data.type === 'chat_trigger');
+          if (chatNode) {
+            setIsChatModalOpen(true);
+          } else {
+            handleRunWorkflow();
+          }
+        } catch {
+          console.log("Error: CTRL + R");
+        }
+      }
+
+      try{
+      // Ctrl/Cmd + P => Organize nodes (simple auto layout)
+      if (isMod && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        organizeNodes();
+      }
+    } catch {
+      console.log("Error: CTRL + P");
+    }
+
+    try{    
+      // Ctrl/Cmd + F => Focus all nodes (fit view)
+      if (isMod && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        try { fitView({ padding: 0.2, duration: 300 }); } catch {}
+      }
+    } catch {
+      console.log("Error: CTRL + F");
+    }
+    };
+    // Use capture to preempt browser defaults (save/reload/print/find)
+    document.addEventListener('keydown', handler, { capture: true });
+    return () => document.removeEventListener('keydown', handler, { capture: true } as any);
+  }, [handleSave, getNodes, getEdges, handleRunWorkflow, setIsChatModalOpen, fitView, organizeNodes, toast]);
   
       try {
         const newWorkflowDoc = await addDoc(workflowsCollection, newWorkflowData);
@@ -2141,15 +2485,15 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                 },
                 onNodeEnd: (nodeId, input, output, duration, logs) => {
                     setExecutingNodes(prev => {
-                        const next = new Set(prev);
-                        next.delete(nodeId);
-                        return next;
+                      const next = new Set(prev);
+                      next.delete(nodeId);
+                      return next;
                     });
-                    if (output?.error) {
+                    if (output?.error || output?.path === 'error') {
                         setErrorNodes(prev => new Set(prev).add(nodeId));
                         toast({
                             title: `Error in node: ${getNodeDefinition(nodes.find(n => n.id === nodeId)?.data.type || '')?.name}`,
-                            description: output.error,
+                            description: output?.error || output?.data?.error || 'Node returned error',
                             variant: "destructive",
                         });
                     } else {
@@ -2162,6 +2506,8 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                     setEdgeExecutionData(prev => ({ ...prev, [edgeId]: { executionTime, itemCount } }));
                 },
                 onWorkflowEnd: () => {
+                    setActiveEdgeId(null);
+                    setExecutingNodes(new Set());
                     setCurrentExecutionId(null);
                 },
                 onExecutionUpdate: (execContext) => setExecutionContext(execContext),
@@ -2173,23 +2519,48 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                         variant: "destructive",
                     });
                 },
-                onClientNodeExecution: async (nodeId, definition, nodeContext, inputData) => {
-                    const output = await executeClientNode(definition, nodeContext, inputData, {
-                        alert: (message: string) => window.alert(message),
-                        toast: (options) => toast(options),
-                        log: (...args: any[]) => console.log('[ClientNode]', ...args),
+          onClientNodeExecution: async (nodeId, definition, nodeContext, inputData) => {
+            // Emit synthetic node_start for client nodes so the event feed reflects UI actions
+            try {
+              if (executionId) {
+                fetch('/api/workflow/execution-events', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ executionId, eventType: 'node_start', nodeId }),
+                }).catch(() => {});
+              }
+            } catch {}
+
+            const output = await executeClientNode(definition, nodeContext, inputData, {
+              alert: (message: string) => window.alert(message),
+              toast: (options) => toast(options),
+              log: (...args: any[]) => console.log('[ClientNode]', ...args),
                         error: (...args: any[]) => console.error('[ClientNode]', ...args),
                         warn: (...args: any[]) => console.warn('[ClientNode]', ...args),
                         info: (...args: any[]) => console.info('[ClientNode]', ...args),
                     });
-                    return output;
-                },
+            // Emit synthetic node_end for client nodes
+            try {
+              if (executionId) {
+                fetch('/api/workflow/execution-events', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ executionId, eventType: 'node_end', nodeId }),
+                }).catch(() => {});
+              }
+            } catch {}
+            return output;
+          },
             },
             targetNodeId,
             'manual'
         );
 
         await engine.execute(triggerNode.id, {});
+        // Final safety cleanup in case any late events arrive
+        setActiveEdgeId(null);
+        setExecutingNodes(new Set());
+        setCurrentExecutionId(null);
     }, [firestore, user, toast, nodes, workflow, getNodes, getEdges]);
 
     const handleRestartWorkflow = useCallback(() => {
@@ -2227,8 +2598,9 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
 
                 if (events.length === 0) return;
 
-                // Process events
+                // Process events; ignore any after workflow_end
                 events.forEach((event: any) => {
+                    if (hasReceivedWorkflowEnd) return;
                     console.log('[Polling] Event received:', event);
 
                     switch (event.event_type) {
@@ -2252,7 +2624,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
 
                                 // event.data is already parsed from SQLite
                                 const eventData = event.data || null;
-                                if (eventData?.output?.error) {
+                                if (eventData?.output?.error || eventData?.output?.path === 'error') {
                                     setErrorNodes(prev => new Set(prev).add(event.node_id));
                                 } else {
                                     setCompletedNodes(prev => new Set(prev).add(event.node_id));
@@ -2269,6 +2641,14 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
 
                         case 'workflow_end':
                             hasReceivedWorkflowEnd = true;
+                            // Force UI to clear running state and stop polling immediately
+                            setActiveEdgeId(null);
+                            setExecutingNodes(new Set());
+                            if (pollingIntervalRef.current) {
+                                clearInterval(pollingIntervalRef.current);
+                                pollingIntervalRef.current = null;
+                            }
+                            setCurrentExecutionId(null);
                             break;
                     }
 
@@ -2278,16 +2658,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                     }
                 });
 
-                // If we received workflow_end, stop polling after a short delay
-                if (hasReceivedWorkflowEnd) {
-                    setTimeout(() => {
-                        if (pollingIntervalRef.current) {
-                            clearInterval(pollingIntervalRef.current);
-                            pollingIntervalRef.current = null;
-                        }
-                        setCurrentExecutionId(null);
-                    }, 1000); // Wait 1 second before cleanup
-                }
+                // If we received workflow_end, we've already stopped and cleared above
 
             } catch (error) {
                 console.error('[Polling] Error fetching events:', error);
@@ -2409,9 +2780,9 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                                 }).catch(err => console.error('[WorkflowEngine] Failed to emit node_start event:', err));
                             }
                         },
-                        onNodeEnd: (nodeId, input, output, duration, logs) => {
+                onNodeEnd: (nodeId, input, output, duration, logs) => {
                             setExecutingNodes(prev => { const next = new Set(prev); next.delete(nodeId); return next; });
-                            if (output?.error) setErrorNodes(prev => new Set(prev).add(nodeId));
+                            if (output?.error || output?.path === 'error') setErrorNodes(prev => new Set(prev).add(nodeId));
                             else setCompletedNodes(prev => new Set(prev).add(nodeId));
                             setExecutionData(prev => ({ ...prev, [nodeId]: { input, output, files: output?.files || input?.files || null, logs: logs || [] } }));
 
@@ -2487,7 +2858,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                                             onNodeEnd: (subNodeId, input, output, duration, logs) => {
                                                 console.log(`[${nodeId}] Sub-workflow node ended:`, subNodeId);
                                                 setExecutingNodes(prev => { const next = new Set(prev); next.delete(subNodeId); return next; });
-                                                if (output?.error) setErrorNodes(prev => new Set(prev).add(subNodeId));
+                                                if (output?.error || output?.path === 'error') setErrorNodes(prev => new Set(prev).add(subNodeId));
                                                 else setCompletedNodes(prev => new Set(prev).add(subNodeId));
                                                 setExecutionData(prev => ({ ...prev, [subNodeId]: { input, output, files: output?.files || input?.files || null, logs: logs || [] } }));
                                             },
@@ -2636,7 +3007,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                         },
                         onNodeEnd: (nodeId, input, output, duration, logs) => {
                             setExecutingNodes(prev => { const next = new Set(prev); next.delete(nodeId); return next; });
-                            if (output?.error) setErrorNodes(prev => new Set(prev).add(nodeId));
+                            if (output?.error || output?.path === 'error') setErrorNodes(prev => new Set(prev).add(nodeId));
                             else setCompletedNodes(prev => new Set(prev).add(nodeId));
                             setExecutionData(prev => ({ ...prev, [nodeId]: { input, output, files: output?.files || input?.files || null, logs: logs || [] } }));
 
@@ -2712,7 +3083,7 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
                                             onNodeEnd: (subNodeId, input, output, duration, logs) => {
                                                 console.log(`[${nodeId}] Sub-workflow node ended:`, subNodeId);
                                                 setExecutingNodes(prev => { const next = new Set(prev); next.delete(subNodeId); return next; });
-                                                if (output?.error) setErrorNodes(prev => new Set(prev).add(subNodeId));
+                                                if (output?.error || output?.path === 'error') setErrorNodes(prev => new Set(prev).add(subNodeId));
                                                 else setCompletedNodes(prev => new Set(prev).add(subNodeId));
                                                 setExecutionData(prev => ({ ...prev, [subNodeId]: { input, output, files: output?.files || input?.files || null, logs: logs || [] } }));
                                             },
@@ -3537,6 +3908,8 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
           const def = getNodeDefinition(n.data.type);
           return def && def.category === 'trigger';
         })}
+        sourceNodeId={sourceForNodeCreation?.sourceNodeId}
+        nodes={nodes}
       />
 
       <NodeSettings
@@ -3574,6 +3947,15 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
               primaryColor={config.primaryColor || '#8B5CF6'}
               mode="test"
               sessionId="test_session"
+              workflowId={workflow.id}
+              userId={user?.uid}
+              workflowSnapshot={{
+                id: workflow.id,
+                name: workflowName,
+                status: workflow.status || 'draft',
+                nodes: workflow.nodes || [],
+                connections: workflow.connections || []
+              }}
               onTestMessage={handleTestChatMessage}
               enableMessageLimit={config.enableMessageLimit || false}
               maxMessages={config.maxMessages || 10}

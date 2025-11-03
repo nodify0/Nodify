@@ -14,6 +14,17 @@ interface ChatFABProps {
   placeholder?: string;
   primaryColor?: string;
   sessionId?: string;
+  // Optional test execution fallbacks/metadata
+  workflowId?: string;
+  userId?: string;
+  workflowSnapshot?: {
+    id: string;
+    name?: string;
+    status?: string;
+    nodes?: any[];
+    connections?: any[];
+  };
+  onTestMessage?: (message: string, files?: File[]) => Promise<string>;
 }
 
 export function ChatFAB({
@@ -22,7 +33,11 @@ export function ChatFAB({
   welcomeMessage = 'Hello! How can I help you today?',
   placeholder = 'Type your message...',
   primaryColor = '#8B5CF6',
-  sessionId = 'default'
+  sessionId = 'default',
+  workflowId,
+  userId,
+  workflowSnapshot,
+  onTestMessage,
 }: ChatFABProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -158,6 +173,10 @@ export function ChatFAB({
         primaryColor={primaryColor}
         mode="test"
         sessionId={sessionId}
+        workflowId={workflowId}
+        userId={userId}
+        workflowSnapshot={workflowSnapshot}
+        onTestMessage={onTestMessage}
       />
     </>
   );

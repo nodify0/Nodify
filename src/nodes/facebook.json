@@ -4,6 +4,7 @@
   "name": "Facebook",
   "description": "Post to Facebook pages, get insights, manage posts and engage with your audience.",
   "group": "Social Media",
+  "subGroup": "Facebook",
   "category": "action",
   "shape": "circle",
   "color": "#1877F2",

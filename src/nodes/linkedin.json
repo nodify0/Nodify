@@ -4,6 +4,7 @@
   "name": "LinkedIn",
   "description": "Share posts, articles, and manage LinkedIn professional content.",
   "group": "Social Media",
+  "subGroup": "LinkedIn",
   "category": "action",
   "shape": "circle",
   "color": "#0077B5",

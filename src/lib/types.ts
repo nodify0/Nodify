@@ -33,15 +33,33 @@ export type NodePort = {
 export type NodeProperty = {
   name: string;
   displayName: string;
-  type: "string" | "number" | "boolean" | "options" | "collection" | "json" | "color" | "credentials" | "notice" | "separator" | "button" | "checkbox" | "radio";
+  type: "string" | "number" | "boolean" | "options" | "collection" | "json" | "color" | "credentials" | "notice" | "separator" | "button" | "checkbox" | "radio" | "fixedCollection";
   default?: any;
   required?: boolean;
   placeholder?: string;
+  description?: string;
   options?: { value: string; label: string }[];
   displayOptions?: {
     show?: Record<string, any[]>;
   };
-  typeOptions?: Record<string, any>;
+  typeOptions?: {
+    multipleValues?: boolean;
+    fields?: NodeProperty[];
+    collectionName?: string;
+    credentialType?: string;
+    [key: string]: any;
+  };
+  ui?: {
+    component?: string;
+    [key: string]: any;
+  };
+  validation?: {
+    min?: number;
+    max?: number;
+    step?: number;
+    unit?: string;
+    [key: string]: any;
+  };
 };
 
 export type NodeExecutionEnvironment = "backend" | "client" | "both";
@@ -65,6 +83,11 @@ export type NodeDefinition = {
   executionCode?: string;
   clientExecutionCode?: string;
   customFunctions?: Record<string, string>; // JSON de funciones personalizadas
+  dynamicOutputs?: {
+    enabled: boolean;
+    sourceProperty: string; // Property name that contains the output definitions
+    defaultOutput?: NodePort; // Default output if no dynamic outputs are defined
+  };
 };
 
 export type NodeData = {
@@ -122,6 +145,7 @@ export type NodeExecution = {
 
 export type WorkflowExecution = {
   id: string;
+  ownerId: string;              // User ID who owns this execution
   workflowId: string;
   workflowName: string;
   status: ExecutionStatus;

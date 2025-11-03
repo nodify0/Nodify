@@ -1,6 +1,8 @@
 /**
  * SQLite Database for Nodify
  * Self-hosted alternative to Firestore for webhook management
+ *
+ * WARNING: This module uses Node.js-only APIs and must only be imported server-side
  */
 
 import Database from 'better-sqlite3';
@@ -22,7 +24,7 @@ db.pragma('journal_mode = WAL');
 // Disable foreign keys to avoid issues (we'll handle referential integrity in code)
 db.pragma('foreign_keys = OFF');
 
-const LATEST_SCHEMA_VERSION = 3;
+const LATEST_SCHEMA_VERSION = 4;
 
 /**
  * Initialize and migrate database schema
@@ -191,6 +193,43 @@ export function initializeDatabase() {
     `);
     db.pragma(`user_version = 3`);
     console.log('[SQLite] Database schema migrated to version 3.');
+  }
+
+  if (currentVersion < 4) {
+    console.log('[SQLite] Migrating database schema to version 4 (WhatsApp triggers)...');
+    db.exec(`
+      -- WhatsApp Registry: Map whatsappId to workflow
+      CREATE TABLE IF NOT EXISTS whatsapp_registry (
+        whatsapp_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        verify_token TEXT,
+        app_secret TEXT,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_lookup
+      ON whatsapp_registry(whatsapp_id, status);
+
+      -- WhatsApp Calls: Log incoming webhook calls
+      CREATE TABLE IF NOT EXISTS whatsapp_calls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        whatsapp_id TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        body TEXT,
+        query TEXT,
+        headers TEXT,
+        path TEXT,
+        timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_calls_id
+      ON whatsapp_calls(whatsapp_id, timestamp DESC);
+    `);
+    db.pragma(`user_version = 4`);
+    console.log('[SQLite] Database schema migrated to version 4.');
   }
 
   console.log(`[SQLite] Database schema is at version ${db.pragma('user_version', { simple: true })}.`);
@@ -446,7 +485,7 @@ export const workflowExecutions = {
     userId: string;
     webhookId?: string;
     mode: 'test' | 'production';
-    trigger: 'webhook' | 'manual' | 'schedule' | 'form_submit';
+    trigger: 'webhook' | 'manual' | 'schedule' | 'form_submit' | 'whatsapp';
     webhookData?: any;
   }) => {
     const stmt = db.prepare(`
@@ -516,6 +555,109 @@ export const workflowExecutions = {
 
     return stmt.all(workflowId, limit);
   }
+};
+
+/**
+ * WhatsApp Registry Operations
+ */
+export const whatsappRegistry = {
+  upsert: (
+    whatsappId: string,
+    data: {
+      userId: string;
+      workflowId: string;
+      status: string;
+      verifyToken?: string;
+      appSecret?: string;
+    }
+  ) => {
+    const stmt = db.prepare(`
+      INSERT INTO whatsapp_registry (whatsapp_id, user_id, workflow_id, status, verify_token, app_secret, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+      ON CONFLICT(whatsapp_id) DO UPDATE SET
+        user_id = excluded.user_id,
+        workflow_id = excluded.workflow_id,
+        status = excluded.status,
+        verify_token = excluded.verify_token,
+        app_secret = excluded.app_secret,
+        updated_at = excluded.updated_at
+    `);
+    return stmt.run(
+      whatsappId,
+      data.userId,
+      data.workflowId,
+      data.status || 'draft',
+      data.verifyToken || null,
+      data.appSecret || null
+    );
+  },
+
+  getById: (whatsappId: string) => {
+    const stmt = db.prepare(
+      `SELECT * FROM whatsapp_registry WHERE whatsapp_id = ? LIMIT 1`
+    );
+    return stmt.get(whatsappId) as
+      | {
+          whatsapp_id: string;
+          user_id: string;
+          workflow_id: string;
+          status: string;
+          verify_token?: string | null;
+          app_secret?: string | null;
+          created_at: number;
+          updated_at: number;
+        }
+      | undefined;
+  },
+
+  delete: (whatsappId: string) => {
+    const stmt = db.prepare('DELETE FROM whatsapp_registry WHERE whatsapp_id = ?');
+    return stmt.run(whatsappId);
+  },
+};
+
+/**
+ * WhatsApp Calls Operations
+ */
+export const whatsappCalls = {
+  create: (data: {
+    whatsappId: string;
+    mode: 'test' | 'production';
+    body?: any;
+    query?: any;
+    headers?: any;
+    path?: string;
+  }) => {
+    const stmt = db.prepare(`
+      INSERT INTO whatsapp_calls
+      (whatsapp_id, mode, body, query, headers, path)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    return stmt.run(
+      data.whatsappId,
+      data.mode,
+      data.body ? JSON.stringify(data.body) : null,
+      data.query ? JSON.stringify(data.query) : null,
+      data.headers ? JSON.stringify(data.headers) : null,
+      data.path || null
+    );
+  },
+
+  getByWhatsappId: (whatsappId: string, limit = 50) => {
+    const stmt = db.prepare(`
+      SELECT * FROM whatsapp_calls
+      WHERE whatsapp_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(whatsappId, limit) as any[];
+    return rows.map((row) => ({
+      ...row,
+      body: JSON.parse(row.body || 'null'),
+      query: JSON.parse(row.query || 'null'),
+      headers: JSON.parse(row.headers || 'null'),
+    }));
+  },
 };
 
 /**

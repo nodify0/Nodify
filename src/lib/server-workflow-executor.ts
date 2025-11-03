@@ -46,10 +46,12 @@ export class ServerWorkflowExecutor {
   private workflow: ServerWorkflow;
   private context: ExecutionContext = {};
   private onEvent?: (event: any) => void;
+  private services?: any;
 
-  constructor(workflow: ServerWorkflow, options?: { onEvent?: (event: any) => void }) {
+  constructor(workflow: ServerWorkflow, options?: { onEvent?: (event: any) => void; services?: any }) {
     this.workflow = workflow;
     this.onEvent = options?.onEvent;
+    this.services = options?.services;
   }
 
   private findNodeById(nodeId: string): WorkflowNode | undefined {
@@ -59,6 +61,12 @@ export class ServerWorkflowExecutor {
   private findConnectionsFrom(nodeId: string, handleId: string = 'main'): WorkflowConnection[] {
     return this.workflow.connections.filter(
       (c) => c.sourceNodeId === nodeId && c.sourceHandle === handleId
+    );
+  }
+
+  private findConnectionsTo(nodeId: string): WorkflowConnection[] {
+    return this.workflow.connections.filter(
+      (c) => c.targetNodeId === nodeId
     );
   }
 
@@ -86,6 +94,10 @@ export class ServerWorkflowExecutor {
     }
 
     console.log(`[ServerWorkflowExecutor] > Executing node: ${definition.name} (${node.id})`);
+    console.log(`[ServerWorkflowExecutor] Input data keys:`, Object.keys(inputData || {}));
+    if (inputData?.__ports) {
+      console.log(`[ServerWorkflowExecutor] __ports keys:`, Object.keys(inputData.__ports));
+    }
     this.emitEvent({ type: 'node_start', nodeId });
 
     const startedAt = new Date();
@@ -173,25 +185,78 @@ export class ServerWorkflowExecutor {
         item: (index: number) => items[index] || {},
       };
 
-      const helpers = {
-        json: (obj: any) => JSON.stringify(obj, null, 2),
-        parse: (str: string) => JSON.parse(str),
-        log: (...args: any[]) => console.log(`[${definition.name}]`, ...args),
-        error: (...args: any[]) => console.error(`[${definition.name}]`, ...args),
-        warn: (...args: any[]) => console.warn(`[${definition.name}]`, ...args),
+    const helpers: any = {
+      json: (obj: any) => JSON.stringify(obj, null, 2),
+      parse: (str: string) => JSON.parse(str),
+      log: (...args: any[]) => console.log(`[${definition.name}]`, ...args),
+      error: (...args: any[]) => console.error(`[${definition.name}]`, ...args),
+      warn: (...args: any[]) => console.warn(`[${definition.name}]`, ...args),
+    };
+
+    // Provide credential helpers when services are available (Firestore client)
+    console.log('[ServerWorkflowExecutor] Checking services availability:', {
+      hasServices: !!this.services,
+      hasDb: !!this.services?.db,
+      hasDoc: !!this.services?.doc,
+      hasGetDoc: !!this.services?.getDoc,
+      hasUser: !!this.services?.user,
+      userId: this.services?.user?.uid
+    });
+
+    if (this.services && this.services.db && this.services.doc && this.services.getDoc && this.services.user) {
+      console.log('[ServerWorkflowExecutor] Services available - enabling credential helpers');
+      helpers.getCredential = async (credentialId: string) => {
+        try {
+          console.log(`[ServerWorkflowExecutor] getCredential called for: ${credentialId}`);
+          const ref = this.services.doc(this.services.db, 'users', this.services.user.uid, 'credentials', credentialId);
+          console.log('[ServerWorkflowExecutor] Firestore ref created, fetching document...');
+          const snap = await this.services.getDoc(ref);
+          const exists = typeof (snap as any)?.exists === 'function' ? (snap as any).exists() : !!(snap as any)?.exists;
+          console.log(`[ServerWorkflowExecutor] Document exists: ${exists}`);
+          if (!exists) return null;
+          const data = snap.data();
+          console.log('[ServerWorkflowExecutor] Credential data loaded successfully');
+          return { id: snap.id, ...data };
+        } catch (e: any) {
+          console.error('[ServerWorkflowExecutor] getCredential failed:', e?.message || e);
+          console.error('[ServerWorkflowExecutor] Error stack:', e?.stack);
+          return null;
+        }
       };
+      helpers.getCredentialData = async (credentialId: string) => {
+        console.log(`[ServerWorkflowExecutor] getCredentialData called for: ${credentialId}`);
+        const cred = await helpers.getCredential(credentialId);
+        const credData = cred?.data || null;
+        console.log(`[ServerWorkflowExecutor] Credential data result: ${credData ? 'found' : 'not found'}`);
+        if (credData) {
+          console.log('[ServerWorkflowExecutor] Credential data keys:', Object.keys(credData));
+        }
+        return credData;
+      };
+    } else {
+      console.warn('[ServerWorkflowExecutor] Services not fully available - credential helpers disabled');
+    }
 
       // Provide Node.js modules for server-side execution
       const dynamicRequire = eval('require');
+      const extraModules: Record<string, any> = {};
+      try {
+        // Expose SQLite helpers to nodes (for memory_sqlite, etc.)
+        const sqlite = dynamicRequire('@/lib/db/sqlite');
+        if (sqlite?.chatMessages) extraModules.chatMessages = sqlite.chatMessages;
+      } catch {}
+
       const nodeModules = {
         fs: dynamicRequire('fs'),
         path: dynamicRequire('path'),
         crypto: dynamicRequire('crypto'),
         buffer: dynamicRequire('buffer'),
         stream: dynamicRequire('stream'),
+        ...extraModules,
       };
 
       // Execute the node
+      console.log(`[ServerWorkflowExecutor] Calling executor for ${definition.name}...`);
       const output = await executor(
         nodeContext,
         items[0] || inputData,
@@ -202,7 +267,7 @@ export class ServerWorkflowExecutor {
         items[0] || {},
         items[0] || {},
         helpers,
-        null, // services not available in server mode
+        this.services || null, // expose services when provided (for credentials, etc.)
         process.env,
         dynamicRequire, // Use the dynamic require
         nodeModules // Add preloaded modules
@@ -212,6 +277,7 @@ export class ServerWorkflowExecutor {
       const duration = finishedAt.getTime() - startedAt.getTime();
 
       console.log(`[ServerWorkflowExecutor] < Finished node: ${definition.name} (${node.id}). Duration: ${duration}ms`);
+      console.log(`[ServerWorkflowExecutor] Output keys:`, Object.keys(output || {}));
 
       // Update context with success
       this.context[node.id] = {
@@ -286,7 +352,28 @@ export class ServerWorkflowExecutor {
         continue;
       }
 
-      const nodeOutput = await this.executeNode(nodeId, inputData);
+      // Ensure auxiliary inputs (other handles) are available before executing
+      const incoming = this.findConnectionsTo(nodeId);
+      const unmetSources = incoming.filter(conn => !this.context[conn.sourceNodeId]);
+      if (incoming.length > 0 && unmetSources.length > 0) {
+        // Defer execution until sources have run
+        queue.push({ nodeId, inputData });
+        continue;
+      }
+
+      // Build __ports map with inputs from other handles (e.g., memory/tools)
+      const ports: Record<string, any> = {};
+      for (const conn of incoming) {
+        const srcCtx = this.context[conn.sourceNodeId];
+        if (srcCtx && srcCtx.output !== undefined) {
+          ports[conn.targetHandle] = srcCtx.output;
+        }
+      }
+      const mergedInput = ports && Object.keys(ports).length > 0
+        ? { ...(inputData || {}), __ports: ports }
+        : inputData;
+
+      const nodeOutput = await this.executeNode(nodeId, mergedInput);
 
       if (!canReprocess) {
         processedNodes.add(nodeId);

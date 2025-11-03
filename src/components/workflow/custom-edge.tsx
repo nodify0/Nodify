@@ -17,14 +17,30 @@ export default function CustomEdge({
   markerEnd,
   data,
 }: EdgeProps) {
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  });
+  let edgePath = '';
+  let labelX = (sourceX + targetX) / 2;
+  let labelY = (sourceY + targetY) / 2;
+
+  if (data?.isLoopBack) {
+    // Orthogonal clean back-edge: go out to an offset X, then vertical, then into target
+    const offset = Math.min(sourceX, targetX) - 60; // go 60px to the left of the leftmost point
+    edgePath = `M ${sourceX},${sourceY} L ${offset},${sourceY} L ${offset},${targetY} L ${targetX},${targetY}`;
+    // place label near the bend
+    labelX = offset;
+    labelY = (sourceY + targetY) / 2;
+  } else {
+    const smooth = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+    });
+    edgePath = smooth[0];
+    labelX = smooth[1];
+    labelY = smooth[2];
+  }
 
   const handleDoubleClick = (event: MouseEvent) => {
     event.preventDefault();
@@ -77,7 +93,7 @@ export default function CustomEdge({
       />
 
       {/* Animated data flow overlay when executing */}
-      {animated && (
+      {animated && !data?.isLoopBack && (
         <>
           {/* Dashed line animation */}
           <path

@@ -4,7 +4,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MoreVertical, Plus, Trash2, Edit, FlaskConical, RefreshCw } from 'lucide-react';
+import { MoreVertical, Plus, Trash2, Edit, FlaskConical, RefreshCw, Layers } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { CustomNode } from '@/lib/custom-nodes-types';
 import Link from 'next/link';
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/use-permissions';
+import { SubGroupsModal } from '@/components/node-labs/subgroups-modal';
 
 const allBuiltInNodes: CustomNode[] = nodeGroups.flatMap(g => g.nodes);
 
@@ -28,6 +29,7 @@ function NodeLabsContent() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [subGroupsModalOpen, setSubGroupsModalOpen] = useState(false);
 
   // Guard: Only allow developer/admin/super_admin
   useEffect(() => {
@@ -120,7 +122,8 @@ function NodeLabsContent() {
         const matchesCategory = selectedCategory === 'all' || node.group === selectedCategory;
         const matchesSearch = searchTerm === '' ||
           node.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          node.description.toLowerCase().includes(searchTerm.toLowerCase());
+          node.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (node.subGroup && node.subGroup.toLowerCase().includes(searchTerm.toLowerCase()));
         return matchesCategory && matchesSearch;
     });
 
@@ -134,13 +137,48 @@ function NodeLabsContent() {
         return acc;
     }, {} as Record<string, CustomNode[]>);
 
-    // 3. Sort nodes within each group and sort the groups themselves
+    // 3. Sort nodes within each group and organize by sub-groups
     const sortedGroupNames = Object.keys(grouped).sort();
 
-    return sortedGroupNames.map(groupName => ({
-        name: groupName,
-        nodes: grouped[groupName].sort((a, b) => a.name.localeCompare(b.name)),
-    }));
+    return sortedGroupNames.map(groupName => {
+        const nodesInGroup = grouped[groupName];
+
+        // Separate nodes with and without sub-groups
+        const withSubGroups: Record<string, CustomNode[]> = {};
+        const withoutSubGroups: CustomNode[] = [];
+
+        nodesInGroup.forEach(node => {
+            if (node.subGroup) {
+                if (!withSubGroups[node.subGroup]) {
+                    withSubGroups[node.subGroup] = [];
+                }
+                withSubGroups[node.subGroup].push(node);
+            } else {
+                withoutSubGroups.push(node);
+            }
+        });
+
+        // Sort sub-groups alphabetically and nodes within them
+        const sortedSubGroups = Object.keys(withSubGroups).sort();
+        const sortedNodes: CustomNode[] = [];
+
+        // Add nodes from sub-groups first
+        sortedSubGroups.forEach(subGroup => {
+            sortedNodes.push(...withSubGroups[subGroup].sort((a, b) => a.name.localeCompare(b.name)));
+        });
+
+        // Add standalone nodes at the end
+        sortedNodes.push(...withoutSubGroups.sort((a, b) => a.name.localeCompare(b.name)));
+
+        return {
+            name: groupName,
+            nodes: sortedNodes,
+            subGroups: sortedSubGroups.map(sg => ({
+                name: sg,
+                nodes: withSubGroups[sg]
+            }))
+        };
+    });
   }, [allNodes, searchTerm, selectedCategory]);
 
   const handleAddNode = () => {
@@ -217,6 +255,14 @@ function NodeLabsContent() {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
+            onClick={() => setSubGroupsModalOpen(true)}
+            className="h-10"
+          >
+            <Layers className="h-4 w-4 mr-2" />
+            Sub-Groups
+          </Button>
+          <Button
+            variant="outline"
             size="icon"
             onClick={() => loadNodes(true)}
             disabled={isRefreshing}
@@ -236,8 +282,19 @@ function NodeLabsContent() {
             {groupedAndSortedNodes.map((group) => (
               <div key={group.name}>
                 <h2 className="text-xl font-semibold mb-4 capitalize px-1">{group.name}</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {group.nodes.map((node) => {
+
+                {/* Render sub-groups */}
+                {group.subGroups && group.subGroups.length > 0 ? (
+                  <div className="space-y-6">
+                    {group.subGroups.map((subGroup) => (
+                      <div key={subGroup.name}>
+                        <h3 className="text-lg font-medium mb-3 px-1 text-muted-foreground flex items-center gap-2">
+                          <span className="w-1 h-5 rounded-full" style={{ backgroundColor: subGroup.nodes[0]?.color || '#6366f1' }}></span>
+                          {subGroup.name}
+                          <span className="text-sm text-muted-foreground/60">({subGroup.nodes.length})</span>
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
+                          {subGroup.nodes.map((node) => {
                       const Icon = getNodeIcon(node);
                       const isCustomNode = node.id.startsWith('cnode-');
                       const isBuiltIn = allBuiltInNodes.some(n => n.id === node.id);
@@ -295,9 +352,144 @@ function NodeLabsContent() {
                             </DropdownMenu>
                           </div>
                         </Card>
-                      )
-                  })}
-                </div>
+                      );
+                    })}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Render nodes without sub-groups */}
+                    {group.nodes.filter(n => !n.subGroup).length > 0 && (
+                      <div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {group.nodes.filter(n => !n.subGroup).map((node) => {
+                            const Icon = getNodeIcon(node);
+                            const isCustomNode = node.id.startsWith('cnode-');
+                            const isBuiltIn = allBuiltInNodes.some(n => n.id === node.id);
+                            return (
+                              <Card key={node.id} className="bg-card/50 backdrop-blur-sm border border-border/20 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/20 hover:-translate-y-1 relative flex flex-col transition-all duration-300 ease-out group h-full">
+                                <Link href={`/node-labs/${node.id}`} className="block flex-grow p-4">
+                                  <CardHeader className="p-0">
+                                    <div className="flex items-start justify-between gap-4">
+                                      <CardTitle className="font-semibold text-base flex items-center gap-2 text-foreground/90">
+                                        <Icon className="h-5 w-5" style={{ color: node.color }} />
+                                        {node.name}
+                                        {isCustomNode && (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-normal">
+                                            CUSTOM
+                                          </span>
+                                        )}
+                                        {!isBuiltIn && !isCustomNode && (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/50 text-secondary-foreground font-normal">
+                                            LOCAL
+                                          </span>
+                                        )}
+                                      </CardTitle>
+                                    </div>
+                                    <CardDescription className="line-clamp-2 text-xs pt-1 h-8 text-foreground/70">{node.description}</CardDescription>
+                                  </CardHeader>
+                                  <CardContent className="p-0 pt-4 flex-grow flex items-end justify-between text-xs text-muted-foreground">
+                                    <p>v{node.version}</p>
+                                    <p>{node.group}</p>
+                                  </CardContent>
+                                </Link>
+                                <div className="absolute top-2 right-2">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <MoreVertical className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem asChild>
+                                        <Link href={`/node-labs/${node.id}`}>
+                                          <Edit className="mr-2 h-4 w-4" />
+                                          <span>{isCustomNode || !isBuiltIn ? 'Edit Node' : 'View Node'}</span>
+                                        </Link>
+                                      </DropdownMenuItem>
+                                      {(isCustomNode || !isBuiltIn) && (
+                                        <DropdownMenuItem
+                                          className="text-destructive focus:text-destructive-foreground focus:bg-destructive"
+                                          onClick={() => handleDeleteNode(node.id)}
+                                        >
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          <span>Delete Node</span>
+                                        </DropdownMenuItem>
+                                      )}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {group.nodes.map((node) => {
+                      const Icon = getNodeIcon(node);
+                      const isCustomNode = node.id.startsWith('cnode-');
+                      const isBuiltIn = allBuiltInNodes.some(n => n.id === node.id);
+                      return (
+                        <Card key={node.id} className="bg-card/50 backdrop-blur-sm border border-border/20 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/20 hover:-translate-y-1 relative flex flex-col transition-all duration-300 ease-out group h-full">
+                          <Link href={`/node-labs/${node.id}`} className="block flex-grow p-4">
+                            <CardHeader className="p-0">
+                              <div className="flex items-start justify-between gap-4">
+                                <CardTitle className="font-semibold text-base flex items-center gap-2 text-foreground/90">
+                                  <Icon className="h-5 w-5" style={{ color: node.color }} />
+                                  {node.name}
+                                  {isCustomNode && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-normal">
+                                      CUSTOM
+                                    </span>
+                                  )}
+                                  {!isBuiltIn && !isCustomNode && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/50 text-secondary-foreground font-normal">
+                                      LOCAL
+                                    </span>
+                                  )}
+                                </CardTitle>
+                              </div>
+                              <CardDescription className="line-clamp-2 text-xs pt-1 h-8 text-foreground/70">{node.description}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0 pt-4 flex-grow flex items-end justify-between text-xs text-muted-foreground">
+                              <p>v{node.version}</p>
+                              <p>{node.group}</p>
+                            </CardContent>
+                          </Link>
+                          <div className="absolute top-2 right-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/node-labs/${node.id}`}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    <span>{isCustomNode || !isBuiltIn ? 'Edit Node' : 'View Node'}</span>
+                                  </Link>
+                                </DropdownMenuItem>
+                                {(isCustomNode || !isBuiltIn) && (
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive-foreground focus:bg-destructive"
+                                    onClick={() => handleDeleteNode(node.id)}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>Delete Node</span>
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -319,6 +511,11 @@ function NodeLabsContent() {
             <Plus className="h-6 w-6"/>
         </Button>
       </div>
+
+      <SubGroupsModal
+        isOpen={subGroupsModalOpen}
+        onClose={() => setSubGroupsModalOpen(false)}
+      />
     </div>
   );
 }

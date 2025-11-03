@@ -4,7 +4,7 @@
 import { cn } from '@/lib/utils';
 import React, { memo, useRef, useCallback, useMemo } from 'react';
 import { Handle, Position, NodeProps, useEdges, useReactFlow } from 'reactflow';
-import { getNodeDefinition, getNodeIcon } from '@/lib/nodes';
+import { getNodeDefinition, getNodeIcon, getNodeOutputs } from '@/lib/nodes';
 import { Zap, Plus, LoaderCircle, XCircle } from 'lucide-react';
 import { CustomNode as CustomNodeDef, CustomNodePort } from '@/lib/custom-nodes-types';
 import type { NodeData, NodeShape } from '@/lib/types';
@@ -213,7 +213,10 @@ const CustomNode = ({ data, isConnectable, selected, dragging }: NodeProps<NodeD
 
   const inputs = definition.inputs || [];
 
-  const outputs = definition.outputs || [];
+  // Use getNodeOutputs to handle dynamic outputs
+  const outputs = useMemo(() => {
+    return getNodeOutputs(definition, data.config);
+  }, [definition, data.config]);
 
 
 
@@ -256,6 +259,30 @@ const CustomNode = ({ data, isConnectable, selected, dragging }: NodeProps<NodeD
     return outputs.some(port => port.position === Position.Bottom || port.position === 'bottom');
   }, [outputs]);
 
+  // Calculate effective shape based on dynamic outputs
+  const effectiveShape = useMemo(() => {
+    // If not using dynamic outputs, return original shape
+    if (!definition.dynamicOutputs?.enabled) {
+      return definition.shape;
+    }
+
+    // Calculate the number of right-positioned outputs (most common case)
+    const rightOutputs = outputs.filter(port =>
+      port.position === Position.Right || port.position === 'right'
+    ).length;
+
+    // Parse the current shape to get width
+    const [widthStr, heightStr] = (definition.shape as string).split('x');
+    const width = widthStr === 'circle' ? '2' : widthStr;
+
+    // Calculate new height based on outputs (minimum 2, maximum 6)
+    const newHeight = Math.min(Math.max(rightOutputs, 2), 6);
+
+    return `${width}x${newHeight}` as NodeShape;
+  }, [definition.shape, definition.dynamicOutputs, outputs]);
+
+  
+
   const nodeBody = (
   <div className="flex flex-col items-center justify-center select-none">
     <div
@@ -268,50 +295,50 @@ const CustomNode = ({ data, isConnectable, selected, dragging }: NodeProps<NodeD
         data.isExecuting && "node-breathing",
         {
           "rounded-xl": true, // bordes suaves para todos
-          "rounded-full aspect-square w-24 h-24": definition.shape === "circle",
+          "rounded-full aspect-square w-24 h-24": effectiveShape === "circle",
 
           // tamaños base W×H
-          "w-20 h-16": definition.shape === "1x1",
-          "w-28 h-16": definition.shape === "2x1",
-          "w-36 h-16": definition.shape === "3x1",
-          "w-44 h-16": definition.shape === "4x1",
-          "w-52 h-16": definition.shape === "5x1",
-          "w-60 h-16": definition.shape === "6x1",
+          "w-20 h-16": effectiveShape === "1x1",
+          "w-28 h-16": effectiveShape === "2x1",
+          "w-36 h-16": effectiveShape === "3x1",
+          "w-44 h-16": effectiveShape === "4x1",
+          "w-52 h-16": effectiveShape === "5x1",
+          "w-60 h-16": effectiveShape === "6x1",
 
-          "w-20 h-24": definition.shape === "1x2",
-          "w-28 h-24": definition.shape === "2x2",
-          "w-36 h-24": definition.shape === "3x2",
-          "w-44 h-24": definition.shape === "4x2",
-          "w-52 h-24": definition.shape === "5x2",
-          "w-60 h-24": definition.shape === "6x2",
+          "w-20 h-24": effectiveShape === "1x2",
+          "w-28 h-24": effectiveShape === "2x2",
+          "w-36 h-24": effectiveShape === "3x2",
+          "w-44 h-24": effectiveShape === "4x2",
+          "w-52 h-24": effectiveShape === "5x2",
+          "w-60 h-24": effectiveShape === "6x2",
 
-          "w-20 h-32": definition.shape === "1x3",
-          "w-28 h-32": definition.shape === "2x3",
-          "w-36 h-32": definition.shape === "3x3",
-          "w-44 h-32": definition.shape === "4x3",
-          "w-52 h-32": definition.shape === "5x3",
-          "w-60 h-32": definition.shape === "6x3",
+          "w-20 h-32": effectiveShape === "1x3",
+          "w-28 h-32": effectiveShape === "2x3",
+          "w-36 h-32": effectiveShape === "3x3",
+          "w-44 h-32": effectiveShape === "4x3",
+          "w-52 h-32": effectiveShape === "5x3",
+          "w-60 h-32": effectiveShape === "6x3",
 
-          "w-20 h-40": definition.shape === "1x4",
-          "w-28 h-40": definition.shape === "2x4",
-          "w-36 h-40": definition.shape === "3x4",
-          "w-44 h-40": definition.shape === "4x4",
-          "w-52 h-40": definition.shape === "5x4",
-          "w-60 h-40": definition.shape === "6x4",
+          "w-20 h-40": effectiveShape === "1x4",
+          "w-28 h-40": effectiveShape === "2x4",
+          "w-36 h-40": effectiveShape === "3x4",
+          "w-44 h-40": effectiveShape === "4x4",
+          "w-52 h-40": effectiveShape === "5x4",
+          "w-60 h-40": effectiveShape === "6x4",
 
-          "w-20 h-48": definition.shape === "1x5",
-          "w-28 h-48": definition.shape === "2x5",
-          "w-36 h-48": definition.shape === "3x5",
-          "w-44 h-48": definition.shape === "4x5",
-          "w-52 h-48": definition.shape === "5x5",
-          "w-60 h-48": definition.shape === "6x5",
+          "w-20 h-48": effectiveShape === "1x5",
+          "w-28 h-48": effectiveShape === "2x5",
+          "w-36 h-48": effectiveShape === "3x5",
+          "w-44 h-48": effectiveShape === "4x5",
+          "w-52 h-48": effectiveShape === "5x5",
+          "w-60 h-48": effectiveShape === "6x5",
 
-          "w-20 h-56": definition.shape === "1x6",
-          "w-28 h-56": definition.shape === "2x6",
-          "w-36 h-56": definition.shape === "3x6",
-          "w-44 h-56": definition.shape === "4x6",
-          "w-52 h-56": definition.shape === "5x6",
-          "w-60 h-56": definition.shape === "6x6",
+          "w-20 h-56": effectiveShape === "1x6",
+          "w-28 h-56": effectiveShape === "2x6",
+          "w-36 h-56": effectiveShape === "3x6",
+          "w-44 h-56": effectiveShape === "4x6",
+          "w-52 h-56": effectiveShape === "5x6",
+          "w-60 h-56": effectiveShape === "6x6",
         }
       )}
       style={{

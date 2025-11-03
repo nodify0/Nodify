@@ -31,7 +31,14 @@
       "Bash(npm run typecheck:*)",
       "Bash(npx tsx:*)",
       "Bash(npx kill-port:*)",
-      "Bash(firebase deploy:*)"
+      "Bash(firebase deploy:*)",
+      "WebSearch",
+      "Bash(del \"C:\\Users\\bmdp1\\OneDrive\\Escritorio\\Nodify\\table-execution-code.js\" \"C:\\Users\\bmdp1\\OneDrive\\Escritorio\\Nodify\\table-exec-minified.txt\")",
+      "Bash(rm:*)",
+      "WebFetch(domain:docs.n8n.io)",
+      "Bash(python:*)",
+      "Bash(C:Usersbmdp1OneDriveEscritorioNodifytemp-ai-agent-code.js)",
+      "Bash(temp-ai-code-test.js)"
     ],
     "deny": [],
     "ask": []

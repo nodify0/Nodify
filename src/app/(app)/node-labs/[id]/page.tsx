@@ -16,6 +16,11 @@ import { useToast } from '@/hooks/use-toast';
 import { IconSelectorSheet } from '@/components/node-labs/icon-selector-sheet';
 import { PortEditor } from '@/components/node-labs/port-editor';
 import { PropertyEditor } from '@/components/node-labs/property-editor';
+import { useFirestore, useUser } from '@/firebase';
+import { collection } from 'firebase/firestore';
+import { useCollection } from '@/firebase/firestore/use-collection';
+import type { SubGroup } from '@/lib/subgroup-types';
+import { getSocialMediaIcon } from '@/components/icons/social-media-icons';
 import {
   getAllShapes,
   detectShapeChangeConflicts,
@@ -73,6 +78,8 @@ export default function NodeLabEditorPage() {
   const params = useParams();
   const nodeId = params.id as string;
   const { toast } = useToast();
+  const firestore = useFirestore();
+  const { user } = useUser();
 
   const [nodeData, setNodeData] = useState<CustomNode | null>(null);
   const [isIconSheetOpen, setIsIconSheetOpen] = useState(false);
@@ -88,6 +95,13 @@ export default function NodeLabEditorPage() {
     newShape: null,
     conflicts: [],
   });
+
+  // Load subGroups from Firestore
+  const subGroupsRef = useMemo(
+    () => (user ? collection(firestore, "users", user.uid, "subGroups") : null),
+    [firestore, user]
+  );
+  const { data: subGroups } = useCollection<SubGroup>(subGroupsRef as any);
 
   useEffect(() => {
     const loadNode = async () => {
@@ -403,6 +417,48 @@ export default function NodeLabEditorPage() {
                                                     ))}
                                                 </SelectContent>
                                               </Select>
+                                          </div>
+                                          <div className="space-y-2">
+                                              <Label htmlFor="node-subgroup">Sub-Group (Optional)</Label>
+                                              <Select
+                                                value={nodeData?.subGroup || 'none'}
+                                                onValueChange={(value) => handleInputChange('subGroup', value === 'none' ? undefined : value)}
+                                              >
+                                                <SelectTrigger id="node-subgroup">
+                                                  <SelectValue placeholder="Select a sub-group" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="none">
+                                                    <span className="text-muted-foreground">No sub-group</span>
+                                                  </SelectItem>
+                                                  {subGroups && subGroups.length > 0 ? (
+                                                    subGroups.map((subGroup) => {
+                                                      const SocialIcon = getSocialMediaIcon(subGroup.icon);
+                                                      const LucideIcon = SocialIcon || getNodeIcon({ icon: subGroup.icon } as any);
+                                                      return (
+                                                        <SelectItem key={subGroup.id} value={subGroup.name}>
+                                                          <div className="flex items-center gap-2">
+                                                            <div
+                                                              className="p-1 rounded"
+                                                              style={{ backgroundColor: `${subGroup.color}15` }}
+                                                            >
+                                                              <LucideIcon className="h-3.5 w-3.5" style={{ color: subGroup.color }} />
+                                                            </div>
+                                                            <span>{subGroup.name}</span>
+                                                          </div>
+                                                        </SelectItem>
+                                                      );
+                                                    })
+                                                  ) : (
+                                                    <SelectItem value="create-new" disabled>
+                                                      <span className="text-muted-foreground text-xs">No sub-groups created yet</span>
+                                                    </SelectItem>
+                                                  )}
+                                                </SelectContent>
+                                              </Select>
+                                              <p className="text-xs text-muted-foreground">
+                                                Nodes with the same sub-group will be grouped together in the Node Palette
+                                              </p>
                                           </div>
                                       </div>
 

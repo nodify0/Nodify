@@ -5,6 +5,7 @@
   "description": "Start the workflow manually by clicking the execute button.",
   "group": "Triggers",
   "category": "trigger",
+  "executionEnvironment": "client",
   "shape": "2x2",
   "color": "#F59E0B",
   "icon": "PlayCircle",

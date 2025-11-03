@@ -67,10 +67,13 @@ async function handleChatRequest(
     const body: ChatRequest = await request.json();
     const {
       message,
-      sessionId = `session_${Date.now()}_${randomBytes(4).toString('hex')}`,
+      sessionId: bodySessionId,
       userId = 'anonymous',
-      metadata = {}
+      metadata: bodyMetadata = {}
     } = body;
+    const metadata = { ...bodyMetadata, persistedByAPI: true, mode: 'production' };
+    // Mantener la misma sesión entre mensajes si el cliente no envía una
+    const sessionId = bodySessionId || 'default';
 
     if (!message || message.trim() === '') {
       return NextResponse.json(
@@ -83,7 +86,20 @@ async function handleChatRequest(
     console.log('[Chat:Prod] Session:', sessionId);
     console.log('[Chat:Prod] User:', userId);
 
-    // 4. Save user message
+    // 4. Load previous messages for memory (before saving current)
+    let history = { agent: [] as string[], user: [] as string[] };
+    try {
+      const prior = chatMessages.getBySession(chatId, sessionId, 200);
+      for (const m of prior) {
+        if (m.role === 'user') history.user.push(String(m.content ?? ''));
+        else if (m.role === 'assistant') history.agent.push(String(m.content ?? ''));
+      }
+      console.log(`[Chat:Prod] Memory preload -> user:${history.user.length} agent:${history.agent.length}`);
+    } catch (e) {
+      console.warn('[Chat:Prod] Failed to load prior messages for memory:', e);
+    }
+
+    // 5. Save user message
     const userMessageId = `msg_${Date.now()}_${randomBytes(4).toString('hex')}`;
     chatMessages.create({
       chatId,
@@ -199,7 +215,8 @@ async function handleChatRequest(
         } catch (err) {
           console.error('[Chat:Prod] Failed to save event:', err);
         }
-      }
+      },
+      services: { db: clientDb, user: { uid: chat.user_id }, doc, getDoc }
     });
 
     // Execute workflow and WAIT for result (synchronous for chat)
@@ -208,7 +225,9 @@ async function handleChatRequest(
       sessionId,
       userId,
       timestamp: new Date().toISOString(),
-      metadata
+      metadata,
+      history,
+      chat: { id: chatId, mode: 'production' }
     };
 
     console.log('[Chat:Prod] Executing workflow...');

@@ -4,6 +4,7 @@
   "name": "Twitter / X",
   "description": "Post tweets, upload media, like, retweet, and manage Twitter/X content.",
   "group": "Social Media",
+  "subGroup": "Twitter",
   "category": "action",
   "shape": "circle",
   "color": "#1DA1F2",

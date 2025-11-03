@@ -4,6 +4,7 @@
   "name": "YouTube",
   "description": "Upload videos, manage playlists, get analytics, and interact with YouTube content.",
   "group": "Social Media",
+  "subGroup": "YouTube",
   "category": "action",
   "shape": "circle",
   "color": "#FF0000",

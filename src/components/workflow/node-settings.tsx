@@ -807,6 +807,161 @@ const renderProperty = (
             </RadioGroup>
           </div>
         );
+      case 'fixedCollection': {
+        // Dynamic fields that can be added/removed
+        const fields = property.typeOptions?.fields || [];
+        const currentValues = Array.isArray(value) ? value : [];
+
+        const addNewItem = () => {
+          const newItem: Record<string, any> = {};
+          fields.forEach((field: NodeProperty) => {
+            newItem[field.name] = field.default ?? '';
+          });
+          handleConfigChange(name, [...currentValues, newItem]);
+        };
+
+        const removeItem = (index: number) => {
+          const newValues = currentValues.filter((_, i) => i !== index);
+          handleConfigChange(name, newValues);
+        };
+
+        const updateItem = (index: number, fieldName: string, fieldValue: any) => {
+          const newValues = [...currentValues];
+          newValues[index] = { ...newValues[index], [fieldName]: fieldValue };
+          handleConfigChange(name, newValues);
+        };
+
+        return (
+          <div className="space-y-3">
+            {currentValues.map((item, index) => (
+              <div key={index} className="relative p-4 rounded-lg border bg-card space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    Item {index + 1}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeItem(index)}
+                    className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <span className="sr-only">Remove</span>
+                    ✕
+                  </Button>
+                </div>
+
+                {fields.map((field: NodeProperty) => {
+                  const fieldValue = item[field.name];
+
+                  return (
+                    <div key={field.name} className="space-y-1.5">
+                      <Label htmlFor={`${name}-${index}-${field.name}`} className="text-xs font-medium">
+                        {field.displayName}
+                        {field.required && <span className="text-destructive ml-1">*</span>}
+                      </Label>
+
+                      {field.type === 'string' && (
+                        field.ui?.component === 'textarea' ? (
+                          <Textarea
+                            id={`${name}-${index}-${field.name}`}
+                            value={fieldValue ?? ''}
+                            placeholder={field.placeholder}
+                            onChange={(e) => updateItem(index, field.name, e.target.value)}
+                            className="min-h-[80px] text-sm"
+                          />
+                        ) : field.ui?.component === 'code' ? (
+                          <div className="relative rounded-lg border border-border/50 bg-muted/30 overflow-hidden">
+                            <CodeEditor
+                              value={fieldValue ?? ''}
+                              onChange={(val) => updateItem(index, field.name, val)}
+                              node={node ? getNodeDefinition(node.data.type) : null}
+                              allNodes={allNodes}
+                              oneLine={true}
+                              executionContext={executionContext}
+                            />
+                          </div>
+                        ) : (
+                          <Input
+                            id={`${name}-${index}-${field.name}`}
+                            type="text"
+                            value={fieldValue ?? ''}
+                            placeholder={field.placeholder}
+                            onChange={(e) => updateItem(index, field.name, e.target.value)}
+                            className="h-9 text-sm"
+                          />
+                        )
+                      )}
+
+                      {field.type === 'number' && (
+                        <Input
+                          id={`${name}-${index}-${field.name}`}
+                          type="number"
+                          value={fieldValue ?? ''}
+                          placeholder={field.placeholder}
+                          onChange={(e) => updateItem(index, field.name, e.target.value === '' ? null : parseFloat(e.target.value))}
+                          className="h-9 text-sm"
+                        />
+                      )}
+
+                      {field.type === 'boolean' && (
+                        <div className="flex items-center gap-2 p-2 rounded border bg-background">
+                          <Switch
+                            id={`${name}-${index}-${field.name}`}
+                            checked={fieldValue ?? false}
+                            onCheckedChange={(checked) => updateItem(index, field.name, checked)}
+                          />
+                          <Label htmlFor={`${name}-${index}-${field.name}`} className="text-xs cursor-pointer">
+                            {fieldValue ? 'Enabled' : 'Disabled'}
+                          </Label>
+                        </div>
+                      )}
+
+                      {field.type === 'options' && (
+                        <Select
+                          value={fieldValue}
+                          onValueChange={(val) => updateItem(index, field.name, val)}
+                        >
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder={field.placeholder || 'Select...'} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(field.options || []).map(option => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+
+                      {field.description && (
+                        <p className="text-xs text-muted-foreground mt-1">{field.description}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addNewItem}
+              className="w-full h-10 border-dashed hover:bg-primary/5 hover:border-primary"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              {property.placeholder || 'Add Item'}
+            </Button>
+
+            {currentValues.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">
+                No items added yet. Click the button above to add one.
+              </p>
+            )}
+          </div>
+        );
+      }
       default:
         return null;
     }

@@ -242,7 +242,8 @@ async function handleWebhookRequest(
         } catch (err) {
           console.error('[Webhook:Prod] Failed to save event:', err);
         }
-      }
+      },
+      services: { db: clientDb, user: { uid: webhook.user_id }, doc, getDoc }
     });
 
     // Execute workflow without blocking the response

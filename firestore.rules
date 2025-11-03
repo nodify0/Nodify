@@ -256,6 +256,15 @@ service cloud.firestore {
       match /customNodes/{nodeId} {
         allow get, list, create, update, delete: if isOwner(userId);
       }
+
+      /**
+       * @description Controls access to a user's node sub-groups.
+       * @path /databases/{database}/documents/users/{userId}/subGroups/{subGroupId}
+       * @allow (CRUD, list) only for the owner.
+       */
+      match /subGroups/{subGroupId} {
+        allow get, list, create, update, delete: if isOwner(userId);
+      }
     }
     
     /**

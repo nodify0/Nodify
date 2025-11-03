@@ -18,12 +18,23 @@
     }
   ],
   "outputs": [],
+  "dynamicOutputs": {
+    "enabled": true,
+    "sourceProperty": "routingRules",
+    "defaultOutput": {
+      "id": "default",
+      "label": "default",
+      "position": "right",
+      "type": "any"
+    }
+  },
   "properties": [
     {
       "name": "inputField",
       "displayName": "Input Value",
       "type": "string",
-      "default": "{{data.value}}",
+      "default": "{{data.message || data.value || data}}",
+      "description": "The value to evaluate against the routing rules",
       "ui": {
         "component": "code"
       }
@@ -31,14 +42,67 @@
     {
       "name": "routingRules",
       "displayName": "Routing Rules",
-      "type": "json",
-      "ui": {
-        "component": "textarea"
-      },
-      "default": "[\n  {\n    \"output\": \"output_1\",\n    \"operator\": \"equals\",\n    \"value\": \"A\"\n  },\n  {\n    \"output\": \"output_2\",\n    \"operator\": \"equals\",\n    \"value\": \"B\"\n  }\n]"
+      "type": "fixedCollection",
+      "default": [],
+      "placeholder": "Add Rule",
+      "description": "Define routing rules to direct data flow. First matching rule wins.",
+      "typeOptions": {
+        "multipleValues": true,
+        "fields": [
+          {
+            "name": "output",
+            "displayName": "Output Name",
+            "type": "string",
+            "required": true,
+            "placeholder": "output_1",
+            "description": "Name of the output port to route to when this rule matches"
+          },
+          {
+            "name": "operator",
+            "displayName": "Operator",
+            "type": "options",
+            "default": "equals",
+            "required": true,
+            "options": [
+              {
+                "value": "equals",
+                "label": "Equals (==)"
+              },
+              {
+                "value": "not_equals",
+                "label": "Not Equals (!=)"
+              },
+              {
+                "value": "contains",
+                "label": "Contains"
+              },
+              {
+                "value": "greater_than",
+                "label": "Greater Than (>)"
+              },
+              {
+                "value": "less_than",
+                "label": "Less Than (<)"
+              }
+            ],
+            "description": "Comparison operator to use for this rule"
+          },
+          {
+            "name": "value",
+            "displayName": "Value",
+            "type": "string",
+            "required": true,
+            "placeholder": "A",
+            "description": "Value to compare against. Can use {{data.field}}",
+            "ui": {
+              "component": "code"
+            }
+          }
+        ]
+      }
     }
   ],
-  "executionCode": "helpers.log('Evaluating Switch routing'); const val = node.properties.inputField.value; const rules = JSON.parse(node.properties.routingRules.value || '[]'); helpers.log(`Input value: ${JSON.stringify(val)}`); helpers.log(`Evaluating ${rules.length} routing rules`); let path = 'default'; for (let i = 0; i < rules.length; i++) { const rule = rules[i]; helpers.log(`Rule ${i + 1}: ${rule.operator} ${JSON.stringify(rule.value)} -> ${rule.output}`); let condition = false; switch (rule.operator) { case 'equals': condition = (val == rule.value); break; case 'not_equals': condition = (val != rule.value); break; case 'contains': condition = (val || '').toString().includes(rule.value); break; } helpers.log(`Rule ${i + 1} condition: ${condition}`); if (condition) { path = rule.output; helpers.log(`Match found! Routing to: ${path}`); break; } } if (path === 'default') { helpers.log('No rules matched, using default path'); } return { ...data, path };",
+  "executionCode": "helpers.log('Starting Switch node');\n\nconst val = node.properties.inputField.value;\nlet rules = node.properties.routingRules.value;\n\nhelpers.log(`Input value: ${JSON.stringify(val)}`);\n\n// Parse rules if it's a string (legacy JSON format)\nif (typeof rules === 'string' && rules.trim()) {\n  try {\n    rules = JSON.parse(rules);\n    helpers.log('Parsed legacy JSON format');\n  } catch (e) {\n    helpers.error(`Failed to parse routing rules: ${e.message}`);\n    return { ...data, error: 'Invalid routing rules format', path: 'default' };\n  }\n}\n\n// Validate that rules is an array\nif (!Array.isArray(rules)) {\n  helpers.error('Routing rules must be an array');\n  return { ...data, error: 'Routing rules must be an array', path: 'default' };\n}\n\nhelpers.log(`Evaluating ${rules.length} routing rule(s)`);\n\nlet path = 'default';\n\nfor (let i = 0; i < rules.length; i++) {\n  const rule = rules[i];\n  \n  if (!rule.output || !rule.operator || rule.value === undefined) {\n    helpers.warn(`Rule ${i + 1}: Missing required fields, skipping`);\n    continue;\n  }\n  \n  helpers.log(`Rule ${i + 1}: ${rule.operator} ${JSON.stringify(rule.value)} -> ${rule.output}`);\n  \n  let condition = false;\n  \n  switch (rule.operator) {\n    case 'equals':\n      condition = (val == rule.value);\n      break;\n    case 'not_equals':\n      condition = (val != rule.value);\n      break;\n    case 'contains':\n      condition = (val || '').toString().includes(rule.value);\n      break;\n    case 'greater_than':\n      condition = Number(val) > Number(rule.value);\n      break;\n    case 'less_than':\n      condition = Number(val) < Number(rule.value);\n      break;\n    default:\n      helpers.warn(`Rule ${i + 1}: Unknown operator '${rule.operator}'`);\n      break;\n  }\n  \n  helpers.log(`Rule ${i + 1} condition: ${condition}`);\n  \n  if (condition) {\n    path = rule.output;\n    helpers.log(`Match found! Routing to: ${path}`);\n    break;\n  }\n}\n\nif (path === 'default') {\n  helpers.log('No rules matched, using default path');\n}\n\nhelpers.log('Switch node execution completed');\n\n// IMPORTANT: Return path separately to ensure it's not overwritten by data\nconst result = typeof data === 'object' && data !== null ? { ...data } : { data };\nresult.path = path;\n\nreturn result;",
   "meta": {
     "author": "Nodify System",
     "createdAt": "2025-10-06"

@@ -178,7 +178,9 @@ async function handleFormSubmission(
       );
     }
 
-    const executor = new ServerWorkflowExecutor(serverWorkflow, {});
+    const executor = new ServerWorkflowExecutor(serverWorkflow, {
+      services: { db: clientDb, user: { uid: formInfo.user_id }, doc, getDoc }
+    });
 
     executor.execute(formNode.id, { body, files }).catch((err) => {
       console.error('[FormSubmit] Workflow execution failed:', err);

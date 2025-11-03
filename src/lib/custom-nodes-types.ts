@@ -59,6 +59,7 @@ export type CustomNode = {
     name:string;
     description: string;
     group: string;
+    subGroup?: string; // Optional sub-group for hierarchical organization in Node Palette
     category: NodeCategory;
     shape: NodeShape;
     color: string;

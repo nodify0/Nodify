@@ -27,6 +27,17 @@ interface ChatModalProps {
   mode?: 'test' | 'production';
   sessionId?: string;
   onTestMessage?: (message: string, files?: File[]) => Promise<string>; // For frontend execution in test mode
+  // Optional identifiers to allow test API fallback when chat is not registered
+  workflowId?: string;
+  userId?: string;
+  // Optional snapshot of the workflow (for test fallback without Firestore)
+  workflowSnapshot?: {
+    id: string;
+    name?: string;
+    status?: string;
+    nodes?: any[];
+    connections?: any[];
+  };
 
   // New props for message limits
   enableMessageLimit?: boolean;
@@ -46,6 +57,9 @@ export function ChatModal({
   mode = 'test',
   sessionId = 'default',
   onTestMessage,
+  workflowId,
+  userId,
+  workflowSnapshot,
   enableMessageLimit = false,
   maxMessages = 10,
   messageLimitExceededAction = 'auto_restart',
@@ -102,10 +116,61 @@ export function ChatModal({
     }
   }, [isOpen, chatId]);
 
-  // Initialize with welcome message and update message count
-  useEffect(() => {
-    if (isOpen) {
-      if (messages.length === 0 && welcomeMessage) {
+  const loadChatHistory = async () => {
+    try {
+      console.log('[ChatModal] Loading chat history...');
+      console.log('[ChatModal] chatId:', chatId);
+      console.log('[ChatModal] sessionId:', currentSessionId);
+
+      const endpoint = mode === 'test'
+        ? `/api/chat/test/${chatId}?sessionId=${currentSessionId}`
+        : `/api/chat/prod/${chatId}?sessionId=${currentSessionId}`;
+
+      console.log('[ChatModal] Fetching from:', endpoint);
+
+      const response = await fetch(endpoint);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[ChatModal] Received data:', data);
+
+        if (data.messages && data.messages.length > 0) {
+          console.log('[ChatModal] Loaded', data.messages.length, 'messages from history');
+          setMessages(data.messages);
+          setMessageCount(data.messages.filter((msg: Message) => msg.role !== 'system').length);
+        } else {
+          // No history found, initialize with welcome message
+          console.log('[ChatModal] No history found, showing welcome message');
+          if (welcomeMessage) {
+            setMessages([
+              {
+                id: 'welcome',
+                role: 'assistant',
+                content: welcomeMessage,
+                timestamp: Date.now()
+              }
+            ]);
+            setMessageCount(1);
+          }
+        }
+      } else {
+        console.error('[ChatModal] Failed to load history:', response.status);
+        // On error, show welcome message
+        if (welcomeMessage) {
+          setMessages([
+            {
+              id: 'welcome',
+              role: 'assistant',
+              content: welcomeMessage,
+              timestamp: Date.now()
+            }
+          ]);
+          setMessageCount(1);
+        }
+      }
+    } catch (error) {
+      console.error('[ChatModal] Error loading chat history:', error);
+      // On error, show welcome message
+      if (welcomeMessage) {
         setMessages([
           {
             id: 'welcome',
@@ -114,31 +179,8 @@ export function ChatModal({
             timestamp: Date.now()
           }
         ]);
-        setMessageCount(1); // Welcome message counts as 1
-      } else {
-        // Recalculate message count if messages are loaded from history
-        // Filter out system messages if they don't count towards the limit
-        setMessageCount(messages.filter(msg => msg.role !== 'system').length);
+        setMessageCount(1);
       }
-    }
-  }, [isOpen, welcomeMessage, messages.length]);
-
-  const loadChatHistory = async () => {
-    try {
-      const endpoint = mode === 'test'
-        ? `/api/chat/test/${chatId}?sessionId=${currentSessionId}`
-        : `/api/chat/prod/${chatId}?sessionId=${currentSessionId}`;
-
-      const response = await fetch(endpoint);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.messages && data.messages.length > 0) {
-          setMessages(data.messages);
-          setMessageCount(data.messages.filter((msg: Message) => msg.role !== 'system').length);
-        }
-      }
-    } catch (error) {
-      console.error('[ChatModal] Error loading chat history:', error);
     }
   };
 
@@ -219,26 +261,20 @@ export function ChatModal({
     setIsLoading(true);
 
     try {
-      // In TEST mode with frontend execution
-      if (mode === 'test' && onTestMessage) {
-        console.log('[ChatModal] Executing workflow in frontend (test mode)');
-        console.log('[ChatModal] Message:', messageText);
+      // Build history from current messages (excluding the just-added user message)
+      const historyMessages = messages.slice(0, -1);
+      const history = {
+        user: historyMessages
+          .filter(m => m.role === 'user')
+          .map(m => m.content),
+        agent: historyMessages
+          .filter(m => m.role === 'assistant')
+          .map(m => m.content)
+      };
 
-        const responseContent = await onTestMessage(messageText, filesToSend);
-
-        // Add assistant response
-        const assistantMessage: Message = {
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: responseContent,
-          files: [],
-          timestamp: Date.now()
-        };
-
-        setMessages(prev => [...prev, assistantMessage]);
-        setMessageCount(prev => prev + 1); // Increment message count for assistant message
-      } else {
-        // Backend execution (production mode or fallback)
+      // Always use backend execution for better credential handling and persistence
+      {
+        // Backend execution (both test and production mode)
         const endpoint = mode === 'test'
           ? `/api/chat/test/${chatId}`
           : `/api/chat/prod/${chatId}`;
@@ -247,6 +283,7 @@ export function ChatModal({
         console.log('[ChatModal] chatId:', chatId);
         console.log('[ChatModal] mode:', mode);
         console.log('[ChatModal] message:', messageText);
+        console.log('[ChatModal] Sending history:', history);
 
         let response;
 
@@ -255,7 +292,8 @@ export function ChatModal({
           const formData = new FormData();
           formData.append('message', messageText);
           formData.append('sessionId', currentSessionId);
-          formData.append('metadata', JSON.stringify({}));
+          formData.append('history', JSON.stringify(history));
+          formData.append('metadata', JSON.stringify({ workflowId, userId, workflowSnapshot }));
 
           filesToSend.forEach(file => {
             formData.append('files', file);
@@ -274,7 +312,8 @@ export function ChatModal({
             body: JSON.stringify({
               message: messageText,
               sessionId: currentSessionId,
-              metadata: {}
+              history,
+              metadata: { workflowId, userId, workflowSnapshot }
             })
           });
         }
@@ -284,6 +323,21 @@ export function ChatModal({
           console.error('[ChatModal] Server error response:', errorText);
           console.error('[ChatModal] Status:', response.status);
           console.error('[ChatModal] Endpoint:', endpoint);
+
+          // Fallback: in test mode, when backend fails and we have a local test handler, run locally
+          if (mode === 'test' && typeof onTestMessage === 'function') {
+            console.warn('[ChatModal] Falling back to onTestMessage (local test execution)');
+            const localResult = await onTestMessage(messageText, filesToSend.length ? filesToSend : undefined);
+            const assistantMessage: Message = {
+              id: `local_${Date.now()}`,
+              role: 'assistant',
+              content: localResult || 'No response received',
+              timestamp: Date.now()
+            };
+            setMessages(prev => [...prev, assistantMessage]);
+            return;
+          }
+
           throw new Error(`Failed to send message: ${response.status} - ${errorText}`);
         }
 

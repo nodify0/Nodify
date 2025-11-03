@@ -4,7 +4,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import { useCollection, useDoc, useFirestore, useUser } from '@/firebase';
-import { collection, doc, query, where } from 'firebase/firestore';
+import { collection, doc } from 'firebase/firestore';
 import type { Workflow, WorkflowExecution } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, CheckCircle2, XCircle, Clock, LoaderCircle, Play } from 'lucide-react';
@@ -31,8 +31,8 @@ export default function ExecutionsPage() {
   // Load executions from the subcollection
   const executionsQuery = useMemo(() => {
     if (!user || !workflowId) return null;
-    const executionsCollection = collection(firestore, 'users', user.uid, 'workflows', workflowId, 'executions');
-    return query(executionsCollection, where("ownerId", "==", user.uid));
+    // No need for where clause since executions are already in user's workflow subcollection
+    return collection(firestore, 'users', user.uid, 'workflows', workflowId, 'executions');
   }, [user, workflowId, firestore]);
 
   const { data: executions, isLoading } = useCollection<WorkflowExecution>(executionsQuery);

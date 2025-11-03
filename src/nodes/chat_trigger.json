@@ -20,6 +20,28 @@
   ],
   "properties": [
     {
+      "name": "autoPersist",
+      "displayName": "Auto Persist (SQLite)",
+      "type": "boolean",
+      "default": false,
+      "description": "Persist user messages automatically to SQLite when chatId/sessionId are present. Leave off when using built-in Chat API to avoid duplicates."
+    },
+    {
+      "name": "persistMode",
+      "displayName": "Persist Mode",
+      "type": "options",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "Auto" },
+        { "value": "test", "label": "Test" },
+        { "value": "production", "label": "Production" }
+      ],
+      "description": "Select message mode when auto-persisting (auto derives from metadata.mode).",
+      "displayOptions": {
+        "show": { "autoPersist": [true] }
+      }
+    },
+    {
       "name": "separatorChatIdentification",
       "displayName": "Chat Identification",
       "type": "separator"
@@ -221,7 +243,7 @@
       }
     }
   ],
-  "executionCode": "helpers.log('Chat trigger received message');\nconst message = data.message || '';\nconst sessionId = data.sessionId || 'default';\nconst userId = data.userId || 'anonymous';\nconst timestamp = data.timestamp || new Date().toISOString();\n\nhelpers.log(`Session: ${sessionId}`);\nhelpers.log(`User: ${userId}`);\nhelpers.log(`Message: ${message}`);\n\n// Build history structure to pass context downstream\nconst history = {\n  agent: [], // Assistant/agent messages\n  user: message ? [message] : [] // Include current user message by default\n};\n\nreturn {\n  message,\n  sessionId,\n  userId,\n  timestamp,\n  chat: {\n    id: node.properties.chatId.value,\n    name: node.properties.chatName.value\n  },\n  history,\n  metadata: data.metadata || {}\n};",
+  "executionCode": "helpers.log('Chat trigger received message');\nconst message = data.message || '';\nconst sessionId = data.sessionId || 'default';\nconst userId = data.userId || 'anonymous';\nconst timestamp = data.timestamp || new Date().toISOString();\n\nhelpers.log(`Session: ${sessionId}`);\nhelpers.log(`User: ${userId}`);\nhelpers.log(`Message: ${message}`);\n\n// History settings\nconst enableHistory = node.properties.enableHistory?.value !== false;\nconst maxHistoryLength = parseInt(node.properties.maxHistoryLength?.value || 50);\n\n// Merge incoming history (if any) WITHOUT appending current message (the agent añade el mensaje actual)\nlet history = { agent: [], user: [] };\nif (enableHistory) {\n  const incomingHistory = (data && data.history) || {};\n  const userHist = Array.isArray(incomingHistory.user) ? incomingHistory.user : [];\n  const agentHist = Array.isArray(incomingHistory.agent) ? incomingHistory.agent : [];\n  const maxLen = Math.max(userHist.length, agentHist.length);\n  const start = Math.max(0, maxLen - maxHistoryLength);\n  history = {\n    user: userHist.slice(start),\n    agent: agentHist.slice(start)\n  };\n} else {\n  helpers.log('History disabled by configuration');\n}\n\nreturn {\n  message,\n  sessionId,\n  userId,\n  timestamp,\n  chat: {\n    id: node.properties.chatId.value,\n    name: node.properties.chatName.value\n  },\n  history,\n  metadata: data.metadata || {}\n};",
   "meta": {
     "author": "Nodify System",
     "createdAt": "2025-10-17",
