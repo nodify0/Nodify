@@ -38,7 +38,9 @@
       "WebFetch(domain:docs.n8n.io)",
       "Bash(python:*)",
       "Bash(C:Usersbmdp1OneDriveEscritorioNodifytemp-ai-agent-code.js)",
-      "Bash(temp-ai-code-test.js)"
+      "Bash(temp-ai-code-test.js)",
+      "Bash(git push:*)",
+      "Bash(git stash drop:*)"
     ],
     "deny": [],
     "ask": []
