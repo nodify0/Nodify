@@ -863,6 +863,23 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
     handleSave(newNodes, getEdges());
   }, [getEdges, getNodes, handleSave]);
 
+  // Keep a stable nodeTypes object to satisfy React Flow
+  // The library warns if nodeTypes/edgeTypes identity changes between renders.
+  const handleUpdateNodeRef = useRef(handleUpdateNode);
+  useEffect(() => {
+    handleUpdateNodeRef.current = handleUpdateNode;
+  }, [handleUpdateNode]);
+
+  const GroupStickerWithUpdate = useMemo(() => {
+    const Comp = (props: any) => (
+      <GroupSticker
+        {...props}
+        onUpdate={(...args: any[]) => (handleUpdateNodeRef.current as any)(...args)}
+      />
+    );
+    return Comp;
+  }, []);
+
   // Handle test chat messages - execute workflow in frontend with animations
   const handleTestChatMessage = useCallback(async (message: string, files?: File[]): Promise<string> => {
     console.log('[Editor] Handling test chat message:', message);
@@ -1732,13 +1749,12 @@ function EditorCanvas({ workflow: workflowProp, folders: initialFolders }: { wor
   }, [edges, nodes, onEdgeDoubleClick, activeEdgeId, showEdgeMetrics, edgeExecutionData, executingNodes, completedNodes, errorNodes]);
 
 
-  const nodeTypes = useMemo(
-    () => ({
+  const nodeTypes = useMemo(() => (
+    {
       custom: CustomNode,
-      groupSticker: (props: any) => <GroupSticker {...props} onUpdate={handleUpdateNode} />,
-    }),
-    [handleUpdateNode]
-  );
+      groupSticker: GroupStickerWithUpdate,
+    }
+  ), [GroupStickerWithUpdate]);
 
   const edgeTypes = useMemo(
     () => ({

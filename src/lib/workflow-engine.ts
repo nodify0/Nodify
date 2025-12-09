@@ -569,15 +569,15 @@ export class WorkflowEngine {
           );
           const snap = await this.services.getDoc(credRef);
 
-          // Check exists - in Firestore client SDK it's a property, not a function
-          if (!snap || !snap.exists) {
+          // Firestore v9 DocumentSnapshot uses .exists() method
+          if (!snap || typeof (snap as any).exists !== 'function' ? true : !(snap as any).exists()) {
             helpers.warn(`[getCredential] Credential not found: ${credentialId}`);
             return null;
           }
 
           const data = snap.data();
           helpers.log(`[getCredential] Credential loaded: ${credentialId}`);
-          return { id: snap.id, ...data };
+          return { id: (snap as any).id, ...(data || {}) };
         } catch (e: any) {
           helpers.error(`[getCredential] Failed to fetch credential: ${e?.message || e}`);
           return null;

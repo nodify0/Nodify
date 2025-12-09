@@ -175,7 +175,15 @@ export const getNodeIcon = (nodeOrId: string | CustomNode): any => {
   const node = typeof nodeOrId === 'string' ? nodesById[nodeOrId] : nodeOrId;
   if (node && (node as any).customIcon) {
     const src = (node as any).customIcon as string;
-    return (props: { className?: string; style?: React.CSSProperties }) => React.createElement('img', { src, alt: node.name || 'icon', className: props.className, style: props.style });
+    const CustomIcon: React.FC<{ className?: string; style?: React.CSSProperties }> = (props) =>
+      React.createElement('img', {
+        src,
+        alt: node.name || 'icon',
+        className: props.className,
+        style: props.style,
+      });
+    CustomIcon.displayName = 'CustomIcon';
+    return CustomIcon as unknown as LucideIcon;
   }
   if (!node || !node.icon) return CircleDot;
   const name = node.icon as string;

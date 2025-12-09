@@ -34,6 +34,7 @@ const Sidebar = React.forwardRef<HTMLDivElement, SidebarProps>(
     return (
       <Comp
         className={cn(sidebarVariants({ collapsed }), "border-r", className)}
+        data-collapsed={collapsed ? true : false}
         ref={ref}
         {...props}
       />
