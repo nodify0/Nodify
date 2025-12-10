@@ -1,10 +1,19 @@
+/**
+ * Firebase Client Configuration
+ *
+ * IMPORTANT: These values come from environment variables.
+ * See .env.example for required configuration.
+ *
+ * Get these from:
+ * Firebase Console → Project Settings → General → Your apps → Web app
+ */
 export const firebaseConfig = {
-  "projectId": "studio-7497860674-b91ac",
-  "appId": "1:614149944827:web:93902df342d6821dea875e",
-  "apiKey": "AIzaSyDqwKKnIF93-7YHO_vSTnTMF96cfnN4gNk",
-  "authDomain": "studio-7497860674-b91ac.firebaseapp.com",
-  "databaseURL": "https://studio-7497860674-b91ac-default-rtdb.firebaseio.com",
-  "storageBucket": "studio-7497860674-b91ac.firebasestorage.app",
-  "measurementId": "",
-  "messagingSenderId": "614149944827"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };

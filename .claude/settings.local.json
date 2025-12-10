@@ -44,7 +44,9 @@
       "Bash(dir:*)",
       "Bash(copy \"public\\assets\\images\\icon.png\" \"docs\\images\\logo.png\")",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(xargs:*)",
+      "Bash(pwsh -File:*)"
     ],
     "deny": [],
     "ask": []
