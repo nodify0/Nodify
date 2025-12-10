@@ -94,6 +94,23 @@ Built with modern web technologies, Nodify offers a seamless experience for crea
 
 ---
 
+#### ▶️ Workflow Execution
+
+<div align="center">
+  <img src="docs/images/workflow_excecute.png" alt="Workflow Execution" width="100%">
+  <p><em>Execute workflows with visual feedback. See nodes light up as they execute, with real-time status indicators.</em></p>
+</div>
+
+**Execution features:**
+- ▶️ **Play button** to run workflow manually
+- 🔴 **Stop button** to cancel execution
+- 💡 **Visual feedback** - Executing nodes highlighted in blue
+- ⚡ **Real-time updates** as workflow runs
+- 🎯 **Node-by-node execution** tracking
+- 🔄 **Loop visualization** with iteration counts
+
+---
+
 ### 🧩 Node Palette
 
 <div align="center">
@@ -113,6 +130,42 @@ Built with modern web technologies, Nodify offers a seamless experience for crea
 - 📱 **Social Media** (94 nodes) - WhatsApp, Discord, Telegram integrations
 - 💳 **Payments** (1 node) - Payment processing
 - 🔧 **Other** (1 node) - Miscellaneous utilities
+
+---
+
+#### 📱 Social Media Nodes
+
+<div align="center">
+  <img src="docs/images/nodes_socialmedia.png" alt="Social Media Nodes" width="80%">
+  <p><em>Extensive social media integration with 94 nodes for Facebook, Instagram, Twitter, LinkedIn, and more.</em></p>
+</div>
+
+**Facebook nodes include:**
+- Create Comment, Create Photo Post, Create Post, Create Video Post
+- Delete Comment, Delete Post
+- Get Comments, Get Page Insights, Get Post Insights, Get Post
+- And more...
+
+**Instagram nodes include:**
+- Create Post
+- And many more integrations coming soon!
+
+---
+
+#### 📊 Node Data Inspector
+
+<div align="center">
+  <img src="docs/images/properties_input_and_output.png" alt="Node Data Inspector" width="100%">
+  <p><em>Inspect input and output data for each node with Schema, Table, and JSON views. Track data transformations through your workflow.</em></p>
+</div>
+
+**Data inspection features:**
+- 📥 **Input data** view with byte size
+- 📤 **Output data** view with byte size
+- 🔍 **Schema view** - Expandable tree structure
+- 📋 **Table view** - Tabular data representation
+- 💻 **JSON view** - Raw JSON with syntax highlighting
+- 📋 **Copy to clipboard** functionality
 
 ---
 
@@ -145,20 +198,32 @@ Built with modern web technologies, Nodify offers a seamless experience for crea
 
 <div align="center">
   <img src="docs/images/node_labs_list.png" alt="Node Labs List" width="100%">
+  <p><em>Browse and manage all your custom nodes. Organized by categories: AI, AI Memory, AI Tools, and Actions.</em></p>
 </div>
 
 <div align="center">
-  <img src="docs/images/node_labs_1.png" alt="Node Labs Editor" width="100%">
-  <p><em>Create custom nodes with the Node Labs interface. Define properties, ports, execution code, and visual appearance.</em></p>
+  <img src="docs/images/node_labs_1.png" alt="Node Labs - General Settings" width="100%">
+  <p><em>General tab: Configure node name, description, category, and visual appearance.</em></p>
+</div>
+
+<div align="center">
+  <img src="docs/images/node_labs_2.png" alt="Node Labs - Properties Configuration" width="100%">
+  <p><em>Properties tab: Define custom properties with types (separator, options, credentials, string, number, etc.).</em></p>
+</div>
+
+<div align="center">
+  <img src="docs/images/node_labs_3.png" alt="Node Labs - Execution Code" width="100%">
+  <p><em>Code tab: Write JavaScript execution logic with full access to context, helpers, and node properties.</em></p>
 </div>
 
 **Node Labs capabilities:**
-- 🎨 Visual node preview
-- ⚙️ Custom properties configuration
-- 🔌 Input/output port definition
-- 💻 JavaScript execution code editor
+- 🎨 Visual node preview with real-time updates
+- ⚙️ Custom properties configuration (10+ property types)
+- 🔌 Input/output port definition with dynamic ports
+- 💻 JavaScript execution code editor with syntax highlighting
 - 🎭 Appearance customization (colors, icons, shapes)
 - 📂 Category and sub-group organization
+- 🔄 Lifecycle hooks support
 
 **Available custom nodes:**
 - **AI Nodes:** AI Agent, AI Text Generation, OpenAI Chat
@@ -215,6 +280,24 @@ Built with modern web technologies, Nodify offers a seamless experience for crea
 
 ---
 
+#### 📋 Execution Details
+
+<div align="center">
+  <img src="docs/images/executions_details.png" alt="Execution Details" width="100%">
+  <p><em>Detailed execution view with error messages, stack traces, and node-by-node results.</em></p>
+</div>
+
+**Detailed execution information:**
+- 📊 **Execution Summary** - Status, duration, mode, started time, results
+- ❌ **Error Display** - Clear error messages with node location
+- 📚 **Stack Trace** - Full error stack for debugging
+- 🔍 **Node Executions** - Individual node results
+- 📥 **Input Data** - Expandable input data for each node
+- 📤 **Output Data** - Expandable output data for each node
+- ⏱️ **Per-node Duration** - Execution time for each node
+
+---
+
 ### 👥 Community Dashboard
 
 <div align="center">
@@ -228,6 +311,24 @@ Built with modern web technologies, Nodify offers a seamless experience for crea
 - 🔥 Popular and recent sorting
 - 📊 Community stats (members, posts, comments, solved)
 - 💬 Comments and engagement
+
+---
+
+### ⚙️ User Settings
+
+<div align="center">
+  <img src="docs/images/settings.png" alt="User Settings" width="100%">
+  <p><em>Manage your account settings and preferences. Customize your public profile for community interactions.</em></p>
+</div>
+
+**Settings sections:**
+- 👤 **Profile** - Public profile information (display name, bio, location, company, website)
+- 🔐 **Account** - Account security and credentials
+- 💳 **Subscription** - Manage billing and subscription plans
+- 💰 **Billing** - Payment methods and invoices
+- 🔔 **Preferences** - Notification and app preferences
+- 🏢 **Workspace** - Team and workspace management
+- 🤖 **AI** - AI model settings and API keys
 
 ---
 
