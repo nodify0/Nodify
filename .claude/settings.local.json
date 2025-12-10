@@ -40,7 +40,11 @@
       "Bash(C:Usersbmdp1OneDriveEscritorioNodifytemp-ai-agent-code.js)",
       "Bash(temp-ai-code-test.js)",
       "Bash(git push:*)",
-      "Bash(git stash drop:*)"
+      "Bash(git stash drop:*)",
+      "Bash(dir:*)",
+      "Bash(copy \"public\\assets\\images\\icon.png\" \"docs\\images\\logo.png\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
